@@ -3,6 +3,7 @@
 [![Visual Studio Marketplace Downloads](https://img.shields.io/visual-studio-marketplace/d/Handy.nowcoderac?labelColor=24acf2&color=333333&label=VSMarketplace)](https://marketplace.visualstudio.com/items?itemName=Handy.nowcoderac)
 [![OpenVSX Downloads](https://img.shields.io/open-vsx/dt/Handy/nowcoderac?labelColor=a60ee5&color=333333&label=OpenVSX)](https://open-vsx.org/extension/Handy/nowcoderac)
 
+> [!IMPORTANT]  
 > 此项目基于原 NowCoderAC 继续维护  
 > [原仓库链接](https://github.com/dogdie233/vscode-nowcoderac)
 

@@ -119,7 +119,8 @@ function parseContentRich($: cheerio.Root, element: cheerio.Cheerio): string {
                 const alt = el.attr('alt') || '';
                 
                 if (src.includes('nowcoder.com/equation')) {
-                    return ` $${alt}$ `; // LaTeX公式
+                    const tex = extractEquationTex(src, alt);
+                    return tex ? ` $${tex}$ ` : ''; // LaTeX公式
                 } else {
                     return ` ![${alt}](${src}) `; // 普通图片
                 }
@@ -139,7 +140,7 @@ function parseContentRich($: cheerio.Root, element: cheerio.Cheerio): string {
                     return `**${processChildren(node).trim()}**`;
                 case 'em':
                 case 'i':
-                    return `*${processChildren(node).trim()}**`;
+                    return `**${processChildren(node).trim()}**`;
                 case 'u':
                     // 检查u标签下是否有strong子标签
                     const firstChild = node.firstChild;
@@ -222,6 +223,20 @@ function countLeadingAsterisks(str: string): number {
 function countTrailingAsterisks(str: string): number {
     const match = str.match(/\*+$/);
     return match ? match[0].length : 0;
+}
+
+function extractEquationTex(src: string, alt: string): string {
+    try {
+        const tex = new URL(src, 'https://ac.nowcoder.com').searchParams.get('tex')?.trim();
+        if (tex) {
+            return tex;
+        }
+    } catch {
+        // URL parsing can fail on malformed image URLs; fall back to alt below.
+    }
+
+    const fallback = alt.trim();
+    return fallback && fallback !== 'latex' ? fallback : '';
 }
 
 /**

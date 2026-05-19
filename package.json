@@ -1,13 +1,13 @@
 {
   "name": "nowcoderac",
-  "displayName": "NowCoderAC-test",
+  "displayName": "NowCoderAC",
   "description": "Solve nowcoder contest problems in VSCode fully",
   "version": "0.3.2",
   "icon": "resources/icon.png",
-  "publisher": "dogdie233",
+  "publisher": "Handy",
   "repository": {
     "type": "git",
-    "url": "https://github.com/dogdie233/vscode-nowcoderac.git"
+    "url": "https://github.com/Handy-null/vscode-nowcoderac-new.git"
   },
   "engines": {
     "vscode": "^1.96.0"

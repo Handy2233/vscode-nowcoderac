@@ -2,6 +2,12 @@
 
 All notable changes to the extension will be documented in this file.
 
+## Version 0.3.3
+
+### Bug Fixes
+
+- 修复牛客题面中公式图片 alt 为 latex 时 Markdown 公式解析错误
+
 ## Version 0.3.2
 
 ### Enhancements

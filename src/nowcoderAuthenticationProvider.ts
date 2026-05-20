@@ -17,6 +17,12 @@ type NowcoderCaptchaConfig = {
     captchaId?: string;
 };
 
+type NowcoderWechatQrCodeConfig = {
+    ticket?: string;
+    imageUrl?: string;
+    expireSecond?: number;
+};
+
 type NowcoderLoginResult = {
     token?: string;
     cookieHeader: string;
@@ -28,6 +34,13 @@ type NowcoderLoginResult = {
 
 type NowcoderCaptchaResult = {
     captchaId: string;
+    cookieHeader: string;
+};
+
+type NowcoderWechatQrCodeResult = {
+    ticket: string;
+    imageUrl: string;
+    expireSecond: number;
     cookieHeader: string;
 };
 
@@ -239,6 +252,10 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         return nonce;
     }
 
+    private delay(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
     private async getCaptchaWebviewHtml(webview: vscode.Webview, captchaId: string): Promise<string> {
         const nonce = this.createNonce();
         const captchaIdJson = JSON.stringify(captchaId).replace(/</g, '\\u003c');
@@ -310,6 +327,168 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
                 }
             }));
         });
+    }
+
+    private escapeHtml(value: string): string {
+        return value
+            .replace(/&/g, '&amp;')
+            .replace(/"/g, '&quot;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+    }
+
+    private async getWechatQrCodeWebviewHtml(webview: vscode.Webview, imageUrl: string, expireSecond: number): Promise<string> {
+        const iconUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'resources', 'icon.png'));
+        const templateUri = vscode.Uri.joinPath(this.context.extensionUri, 'resources', 'nowcoderWechatLogin.html');
+        const template = Buffer.from(await vscode.workspace.fs.readFile(templateUri)).toString('utf8');
+        const replacements: { [key: string]: string } = {
+            cspSource: webview.cspSource,
+            iconUri: this.escapeHtml(iconUri.toString()),
+            imageUrl: this.escapeHtml(imageUrl),
+            expireSecond: this.escapeHtml(expireSecond.toString())
+        };
+
+        return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => replacements[key] ?? match);
+    }
+
+    private async getWechatQrCode(cookieHeader: string): Promise<NowcoderWechatQrCodeResult> {
+        const response = await axios.get<NowcoderResponse<NowcoderWechatQrCodeConfig>>(
+            'https://www.nowcoder.com/oauth2/login/wechat_qr_code',
+            {
+                headers: {
+                    Cookie: cookieHeader,
+                    Referer: 'https://www.nowcoder.com/login',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                validateStatus: () => true
+            }
+        );
+
+        const setCookie = response.headers['set-cookie'];
+        const nextCookieHeader = this.mergeCookieHeaders(
+            cookieHeader,
+            this.cookieHeaderFromSetCookie(setCookie)
+        );
+        const ticket = response.data.data?.ticket;
+        const imageUrl = response.data.data?.imageUrl;
+        const expireSecond = response.data.data?.expireSecond ?? 120;
+        this.debugLogin('wechat qr code response', {
+            status: response.status,
+            code: response.data?.code,
+            msg: response.data?.msg || response.data?.message,
+            setCookieNames: this.cookieNamesFromSetCookie(setCookie),
+            cookieNames: this.cookieNamesFromHeader(nextCookieHeader),
+            hasTicket: Boolean(ticket),
+            hasImageUrl: Boolean(imageUrl),
+            expireSecond
+        });
+
+        if (response.data.code !== 0 || !ticket || !imageUrl) {
+            throw new Error(response.data.msg || response.data.message || '获取微信登录二维码失败');
+        }
+
+        return {
+            ticket,
+            imageUrl,
+            expireSecond,
+            cookieHeader: nextCookieHeader
+        };
+    }
+
+    private async pollWechatLoginStatus(ticket: string, cookieHeader: string): Promise<NowcoderLoginResult> {
+        const response = await axios.get<NowcoderResponse>(
+            'https://www.nowcoder.com/oauth2/login/wechat_mp_status',
+            {
+                headers: {
+                    Cookie: cookieHeader,
+                    Referer: 'https://www.nowcoder.com/oauth2/login/wechat_mp_index',
+                    'X-Requested-With': 'XMLHttpRequest'
+                },
+                params: {
+                    ticket
+                },
+                validateStatus: () => true
+            }
+        );
+
+        const setCookie = response.headers['set-cookie'];
+        const nextCookieHeader = this.mergeCookieHeaders(
+            cookieHeader,
+            this.cookieHeaderFromSetCookie(setCookie)
+        );
+        const token = this.getCookieValue(nextCookieHeader, 't');
+        this.debugLogin('wechat login status response', {
+            status: response.status,
+            code: response.data?.code,
+            msg: response.data?.msg || response.data?.message,
+            setCookieNames: this.cookieNamesFromSetCookie(setCookie),
+            cookieNames: this.cookieNamesFromHeader(nextCookieHeader),
+            hasToken: Boolean(token)
+        });
+
+        return {
+            token,
+            cookieHeader: nextCookieHeader,
+            response: {
+                status: response.status,
+                data: response.data
+            }
+        };
+    }
+
+    private async loginWithWechat(): Promise<string> {
+        const initialCookieHeader = await this.initLoginCookie();
+        const qrCode = await this.getWechatQrCode(initialCookieHeader);
+        const panel = vscode.window.createWebviewPanel(
+            'nowcoderWechatLogin',
+            '牛客微信扫码登录',
+            vscode.ViewColumn.Active,
+            {
+                enableScripts: false,
+                localResourceRoots: [
+                    vscode.Uri.joinPath(this.context.extensionUri, 'resources')
+                ]
+            }
+        );
+
+        panel.webview.html = await this.getWechatQrCodeWebviewHtml(
+            panel.webview,
+            qrCode.imageUrl,
+            qrCode.expireSecond
+        );
+
+        let disposed = false;
+        const disposeListener = panel.onDidDispose(() => {
+            disposed = true;
+        });
+
+        try {
+            let cookieHeader = qrCode.cookieHeader;
+            const deadline = Date.now() + qrCode.expireSecond * 1000;
+            while (!disposed && Date.now() < deadline) {
+                await this.delay(3000);
+                if (disposed) {
+                    break;
+                }
+
+                const result = await this.pollWechatLoginStatus(qrCode.ticket, cookieHeader);
+                cookieHeader = result.cookieHeader;
+                if (result.token) {
+                    panel.dispose();
+                    return result.token;
+                }
+                if (result.response.data?.code !== 1) {
+                    throw new Error(this.getLoginFailureMessage(result, '微信扫码登录失败'));
+                }
+            }
+
+            throw new Error(disposed ? '已取消微信扫码登录' : '微信登录二维码已过期，请重新登录');
+        } finally {
+            disposeListener.dispose();
+            if (!disposed) {
+                panel.dispose();
+            }
+        }
     }
 
     private getLoginFailureMessage(result: NowcoderLoginResult, fallback = '牛客登录失败'): string {
@@ -554,6 +733,9 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
             },
             {
                 label: '手机验证码登录',
+            },
+            {
+                label: '微信扫码登录',
             }
         ], {
             placeHolder: '选择牛客登录方式'
@@ -602,6 +784,13 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
 
             try {
                 token = await this.loginWithSms(phone);
+            } catch (error) {
+                this.outputChannel.show(true);
+                throw error;
+            }
+        } else if (loginMode.label === '微信扫码登录') {
+            try {
+                token = await this.loginWithWechat();
             } catch (error) {
                 this.outputChannel.show(true);
                 throw error;

@@ -360,11 +360,9 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         const loginMode = await vscode.window.showQuickPick([
             {
                 label: 'Cookie 登录',
-                description: '稳定方式，粘贴 t 或完整 Cookie'
             },
             {
-                label: '实验性账号密码登录',
-                description: '模拟牛客网页登录接口，可能被验证码或风控拦截'
+                label: '账号密码登录',
             }
         ], {
             placeHolder: '选择牛客登录方式'
@@ -375,7 +373,7 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         }
 
         var token;
-        if (loginMode.label === '实验性账号密码登录') {
+        if (loginMode.label === '账号密码登录') {
             const account = await vscode.window.showInputBox({
                 prompt: '请输入牛客账号/手机号/邮箱',
                 ignoreFocusOut: true
@@ -401,7 +399,7 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
             }
         } else {
             const cookieStr = await vscode.window.showInputBox({
-                prompt: "请输入cookie,具体方法见插件详情",
+                prompt: "请输入Cookie,具体方法见插件详情",
                 ignoreFocusOut: true,
                 password: false
             });

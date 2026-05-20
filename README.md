@@ -1,7 +1,7 @@
 # NowcoderAC for Visual Studio Code
 
-[![Visual Studio Marketplace Downloads](https://img.shields.io/visual-studio-marketplace/d/Handy2233.nowcoderac?labelColor=24acf2&color=333333&label=VSMarketplace)](https://marketplace.visualstudio.com/items?itemName=Handy2233.nowcoderac)
-[![OpenVSX Downloads](https://img.shields.io/open-vsx/dt/Handy2233/nowcoderac?labelColor=a60ee5&color=333333&label=OpenVSX)](https://open-vsx.org/extension/Handy2233/nowcoderac)
+[![Visual Studio Marketplace Downloads](https://img.shields.io/visual-studio-marketplace/d/Handy2233.nowcoderac-plus?labelColor=24acf2&color=333333&label=VSMarketplace)](https://marketplace.visualstudio.com/items?itemName=Handy2233.nowcoderac-plus)
+[![OpenVSX Downloads](https://img.shields.io/open-vsx/dt/Handy2233/nowcoderac-plus?labelColor=a60ee5&color=333333&label=OpenVSX)](https://open-vsx.org/extension/Handy2233/nowcoderac-plus)
 
 > [!IMPORTANT]  
 > 此项目基于原 NowCoderAC 继续维护  

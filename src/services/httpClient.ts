@@ -11,7 +11,7 @@ export class HttpClient {
      * 获取插件版本号
      */
     private getExtensionVersion(): string {
-        const extension = vscode.extensions.getExtension('Handy2233.nowcoderac');
+        const extension = vscode.extensions.getExtension('Handy2233.nowcoderac-plus');
         return extension?.packageJSON.version || '1.0.0';
     }
 

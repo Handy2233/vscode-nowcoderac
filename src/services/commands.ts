@@ -144,14 +144,24 @@ export const createCodeFile = async (problemItem: ProblemItem | undefined, gener
 
         if (generateCphProb) {
             console.info('Creating prob file...');
-            const cphService = currentContest.cphService;
-            if (!cphService.readExistingProb(fileName)) {
-                const prob = cphService.createProb(fileName, problem);
-                if (prob) {
-                    cphService.saveProb(fileName, prob);
-                } else {
-                    console.error('Failed to create prob file');
+            try {
+                const cphService = currentContest.cphService;
+                const existingProb = cphService.readExistingProb(fileName);
+                if (!existingProb || !existingProb.tests || existingProb.tests.length === 0) {
+                    if (!problem.extra) {
+                        problem.extra = await currentContest.getProblemExtra(problem.info.index);
+                    }
+
+                    const prob = cphService.createProb(fileName, problem);
+                    if (prob) {
+                        cphService.saveProb(fileName, prob);
+                    } else {
+                        console.error('Failed to create prob file');
+                    }
                 }
+            } catch (error) {
+                console.error('Failed to create prob file:', error);
+                vscode.window.showWarningMessage(`生成 CPH 测试数据失败: ${error instanceof Error ? error.message : String(error)}`);
             }
         }
 

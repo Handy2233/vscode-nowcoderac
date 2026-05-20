@@ -18,7 +18,7 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
 
     async createSession(scopes: string[]): Promise<vscode.AuthenticationSession> {
         const cookieStr = await vscode.window.showInputBox({
-            prompt: '请输入cookie',
+            prompt: '请输入cookie,获取方法见插件详情',
             ignoreFocusOut: true,
             password: false
         });

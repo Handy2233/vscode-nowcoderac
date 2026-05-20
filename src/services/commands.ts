@@ -213,10 +213,10 @@ export const refreshRealtimeRank = async () => {
 };
 
 export const login = async (context: vscode.ExtensionContext) => {
-    NowcoderAuthenticationProvider.clearToken(context);
-    vscode.authentication.getSession('nowcoderac', [], { createIfNone: true });  
+    await NowcoderAuthenticationProvider.clearToken(context);
+    await vscode.authentication.getSession('nowcoderac', [], { createIfNone: true });
 };
 
 export const logout = async (context: vscode.ExtensionContext) => {
-    NowcoderAuthenticationProvider.clearToken(context);
+    await NowcoderAuthenticationProvider.clearToken(context);
 };

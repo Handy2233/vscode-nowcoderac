@@ -17,7 +17,7 @@ type NowcoderCaptchaConfig = {
     captchaId?: string;
 };
 
-type NowcoderPasswordLoginResult = {
+type NowcoderLoginResult = {
     token?: string;
     cookieHeader: string;
     response: {
@@ -138,7 +138,7 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         cipherPwd: string,
         cookieHeader: string,
         neteaseValidate?: string
-    ): Promise<NowcoderPasswordLoginResult> {
+    ): Promise<NowcoderLoginResult> {
         const body = new URLSearchParams({
             account,
             cipherPwd,
@@ -258,7 +258,7 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
     private async showNeteaseCaptcha(captchaId: string): Promise<string> {
         const panel = vscode.window.createWebviewPanel(
             'nowcoderCaptcha',
-            '牛客验证码',
+            '牛客安全验证',
             vscode.ViewColumn.Active,
             {
                 enableScripts: true,
@@ -312,9 +312,9 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         });
     }
 
-    private getLoginFailureMessage(result: NowcoderPasswordLoginResult): string {
+    private getLoginFailureMessage(result: NowcoderLoginResult, fallback = '牛客登录失败'): string {
         const message = result.response.data?.msg || result.response.data?.message;
-        return message || `牛客密码登录失败，状态码 ${result.response.status}`;
+        return message || `${fallback}，状态码 ${result.response.status}`;
     }
 
     private async loginWithPassword(account: string, password: string): Promise<string> {
@@ -356,6 +356,194 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         return token;
     }
 
+    private normalizeSmsAccount(phone: string): string {
+        const normalized = phone.trim().replace(/\s+/g, '');
+        if (normalized.startsWith('+')) {
+            return normalized;
+        }
+        return `+86${normalized}`;
+    }
+
+    private async initLoginCookie(): Promise<string> {
+        const response = await axios.get<string>('https://www.nowcoder.com/login', {
+            headers: {
+                Accept: 'text/html'
+            },
+            responseType: 'text',
+            validateStatus: () => true
+        });
+        const cookieHeader = this.cookieHeaderFromSetCookie(response.headers['set-cookie']);
+        this.debugLogin('login page initialized', {
+            status: response.status,
+            cookieNames: this.cookieNamesFromHeader(cookieHeader)
+        });
+        return cookieHeader;
+    }
+
+    private getRequestParams(cookieHeader: string): Record<string, string> {
+        const params: Record<string, string> = {
+            lang: 'Ch'
+        };
+        const csrfToken = this.getCookieValue(cookieHeader, 'csrf_token');
+        if (csrfToken) {
+            params.token = csrfToken;
+        }
+        return params;
+    }
+
+    private async postSmsCodeRequest(
+        account: string,
+        cookieHeader: string,
+        neteaseValidate?: string
+    ): Promise<NowcoderLoginResult> {
+        const body = new URLSearchParams({
+            phone: account
+        });
+        if (neteaseValidate) {
+            body.set('netease_validate', neteaseValidate);
+        }
+
+        const response = await axios.post<NowcoderResponse>(
+            'https://www.nowcoder.com/nccommon/register/validate-phone-v2',
+            body.toString(),
+            {
+                headers: {
+                    Cookie: cookieHeader,
+                    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    langType: 'Ch',
+                    Referer: 'https://www.nowcoder.com/login'
+                },
+                params: this.getRequestParams(cookieHeader),
+                validateStatus: () => true
+            }
+        );
+
+        const setCookie = response.headers['set-cookie'];
+        const nextCookieHeader = this.mergeCookieHeaders(
+            cookieHeader,
+            this.cookieHeaderFromSetCookie(setCookie)
+        );
+        this.debugLogin('sms code request response', {
+            phase: neteaseValidate ? 'retry-with-captcha' : 'initial',
+            status: response.status,
+            code: response.data?.code,
+            msg: response.data?.msg || response.data?.message,
+            setCookieNames: this.cookieNamesFromSetCookie(setCookie),
+            cookieNames: this.cookieNamesFromHeader(nextCookieHeader)
+        });
+
+        return {
+            cookieHeader: nextCookieHeader,
+            response: {
+                status: response.status,
+                data: response.data
+            }
+        };
+    }
+
+    private async sendSmsCode(account: string, cookieHeader: string): Promise<string> {
+        const firstResult = await this.postSmsCodeRequest(account, cookieHeader);
+        if (firstResult.response.data?.code === 0) {
+            return firstResult.cookieHeader;
+        }
+
+        if (firstResult.response.data?.code !== 1125) {
+            throw new Error(this.getLoginFailureMessage(firstResult, '发送手机验证码失败'));
+        }
+
+        const captcha = await this.getNeteaseCaptcha(firstResult.cookieHeader);
+        const neteaseValidate = await this.showNeteaseCaptcha(captcha.captchaId);
+        const retryResult = await this.postSmsCodeRequest(
+            account,
+            captcha.cookieHeader,
+            neteaseValidate
+        );
+        if (retryResult.response.data?.code !== 0) {
+            throw new Error(this.getLoginFailureMessage(retryResult, '发送手机验证码失败'));
+        }
+        return retryResult.cookieHeader;
+    }
+
+    private async postSmsLogin(
+        account: string,
+        code: string,
+        cookieHeader: string
+    ): Promise<NowcoderLoginResult> {
+        const body = new URLSearchParams({
+            account,
+            code,
+            remember: 'true'
+        });
+
+        const response = await axios.post<NowcoderResponse>(
+            'https://www.nowcoder.com/nccommon/login-or-register/do',
+            body.toString(),
+            {
+                headers: {
+                    Cookie: cookieHeader,
+                    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    langType: 'Ch',
+                    Referer: 'https://www.nowcoder.com/login'
+                },
+                params: this.getRequestParams(cookieHeader),
+                validateStatus: () => true
+            }
+        );
+
+        const setCookie = response.headers['set-cookie'];
+        const nextCookieHeader = this.mergeCookieHeaders(
+            cookieHeader,
+            this.cookieHeaderFromSetCookie(setCookie)
+        );
+        const token = this.getCookieValue(nextCookieHeader, 't');
+        this.debugLogin('sms login response', {
+            status: response.status,
+            code: response.data?.code,
+            msg: response.data?.msg || response.data?.message,
+            setCookieNames: this.cookieNamesFromSetCookie(setCookie),
+            cookieNames: this.cookieNamesFromHeader(nextCookieHeader),
+            hasToken: Boolean(token)
+        });
+
+        return {
+            token,
+            cookieHeader: nextCookieHeader,
+            response: {
+                status: response.status,
+                data: response.data
+            }
+        };
+    }
+
+    private async loginWithSms(phone: string): Promise<string> {
+        const account = this.normalizeSmsAccount(phone);
+        const initialCookieHeader = await this.initLoginCookie();
+        this.debugLogin('sms login started', {
+            accountPrefix: account.slice(0, 3),
+            initialCookieNames: this.cookieNamesFromHeader(initialCookieHeader)
+        });
+
+        const smsCookieHeader = await this.sendSmsCode(account, initialCookieHeader);
+        vscode.window.showInformationMessage('手机验证码已发送，请查收短信。');
+        const smsCode = await vscode.window.showInputBox({
+            prompt: '验证码已发送，请输入验证码',
+            ignoreFocusOut: true,
+            password: false
+        });
+        if (!smsCode) {
+            throw new Error('手机验证码不能为空');
+        }
+
+        const loginResult = await this.postSmsLogin(account, smsCode.trim(), smsCookieHeader);
+        const token = loginResult.token;
+        if (!token) {
+            throw new Error(this.getLoginFailureMessage(loginResult, '手机验证码登录失败'));
+        }
+        return token;
+    }
+
     async createSession(scopes: string[]): Promise<vscode.AuthenticationSession> {
         const loginMode = await vscode.window.showQuickPick([
             {
@@ -363,6 +551,9 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
             },
             {
                 label: '账号密码登录',
+            },
+            {
+                label: '手机验证码登录',
             }
         ], {
             placeHolder: '选择牛客登录方式'
@@ -397,6 +588,24 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
                 this.outputChannel.show(true);
                 throw error;
             }
+        } else if (loginMode.label === '手机验证码登录') {
+            const phone = await vscode.window.showInputBox({
+                prompt: '请输入牛客绑定手机号',
+                ignoreFocusOut: true
+            });
+            if (!phone) {
+                throw new Error('手机号不能为空');
+            }
+            if (phone.length != 11 || phone[0] != '1') {
+                throw new Error('手机号码必须是11位中国大陆手机号');
+            }
+
+            try {
+                token = await this.loginWithSms(phone);
+            } catch (error) {
+                this.outputChannel.show(true);
+                throw error;
+            }
         } else {
             const cookieStr = await vscode.window.showInputBox({
                 prompt: "请输入Cookie,具体方法见插件详情",
@@ -422,8 +631,7 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         if (!token) {
             throw new Error('无效的cookie/token值');
         }
-        token.replaceAll('\'', '');
-        token.replaceAll('"', '');
+        token = token.replaceAll('\'', '').replaceAll('"', '');
         const userName = await this.fetchCurrentUserName(token);
 
         const session: vscode.AuthenticationSession = {

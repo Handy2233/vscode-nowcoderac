@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src {{cspSource}} https: data:; style-src {{cspSource}} 'unsafe-inline' https:; script-src 'nonce-{{nonce}}' 'unsafe-eval' https:; connect-src https: wss:; frame-src https:; child-src https: blob:;">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>牛客验证码</title>
+    <style>
+        :root {
+            --panel-border: color-mix(in srgb, var(--vscode-editorWidget-border, #454545) 75%, transparent);
+            --muted: var(--vscode-descriptionForeground);
+            --accent: var(--vscode-button-background);
+            --success: var(--vscode-testing-iconPassed, #3fb950);
+            --warning: var(--vscode-editorWarning-foreground, #d29922);
+            --error: var(--vscode-errorForeground, #f85149);
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            padding: 28px;
+            color: var(--vscode-foreground);
+            background: var(--vscode-editor-background);
+            font-family: var(--vscode-font-family);
+        }
+
+        .shell {
+            max-width: 430px;
+            margin: 0 auto;
+        }
+
+        .header {
+            display: grid;
+            grid-template-columns: 40px 1fr;
+            gap: 12px;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+
+        .brand-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            object-fit: contain;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 18px;
+            font-weight: 600;
+            letter-spacing: 0;
+        }
+
+        p {
+            margin: 4px 0 0;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        .panel {
+            border: 1px solid var(--panel-border);
+            border-radius: 8px;
+            background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+            overflow: hidden;
+        }
+
+        .captcha-zone {
+            display: grid;
+            place-items: center;
+            min-height: 128px;
+            padding: 22px 16px;
+            border-bottom: 1px solid var(--panel-border);
+        }
+
+        #captcha {
+            width: 260px;
+            min-height: 44px;
+        }
+
+        .footer {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 12px;
+            align-items: center;
+            padding: 12px 14px;
+        }
+
+        #statusLine {
+            display: flex;
+            gap: 8px;
+            align-items: flex-start;
+            min-width: 0;
+        }
+
+        #statusIcon {
+            flex: 0 0 auto;
+            width: 8px;
+            height: 8px;
+            margin-top: 7px;
+            border-radius: 50%;
+            background: var(--warning);
+        }
+
+        #statusText {
+            min-width: 0;
+            color: var(--muted);
+            line-height: 1.5;
+        }
+
+        body[data-state="ready"] #statusIcon {
+            background: var(--accent);
+        }
+
+        body[data-state="success"] #statusIcon {
+            background: var(--success);
+        }
+
+        body[data-state="error"] #statusIcon {
+            background: var(--error);
+        }
+
+        body[data-state="error"] #statusText {
+            color: var(--error);
+        }
+
+        button {
+            min-width: 76px;
+            height: 30px;
+            padding: 0 12px;
+            color: var(--vscode-button-foreground);
+            background: var(--vscode-button-background);
+            border: 0;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        button:hover {
+            background: var(--vscode-button-hoverBackground);
+        }
+    </style>
+</head>
+<body data-state="loading">
+    <div class="shell">
+        <div class="header">
+            <img class="brand-icon" src="{{iconUri}}" alt="">
+            <div>
+                <h1>牛客安全验证</h1>
+                <p>完成验证后会自动继续登录。</p>
+            </div>
+        </div>
+
+        <div class="panel">
+            <div class="captcha-zone">
+                <div id="captcha"></div>
+            </div>
+            <div class="footer">
+                <div id="statusLine" role="status" aria-live="polite">
+                    <span id="statusIcon"></span>
+                    <span id="statusText">正在加载验证码...</span>
+                </div>
+                <button id="refresh" type="button">刷新</button>
+            </div>
+        </div>
+    </div>
+
+    <script nonce="{{nonce}}">
+        const vscode = acquireVsCodeApi();
+        const captchaId = {{captchaId}};
+        const scriptNonce = '{{nonce}}';
+        const statusText = document.getElementById('statusText');
+        const refreshButton = document.getElementById('refresh');
+        let captchaInstance;
+        let captchaLoading;
+
+        function setStatus(message, state) {
+            document.body.dataset.state = state || 'loading';
+            statusText.textContent = message;
+        }
+
+        function reportError(message) {
+            setStatus(message, 'error');
+            vscode.postMessage({ type: 'captchaError', message });
+        }
+
+        window.addEventListener('error', function(event) {
+            reportError('验证码页面脚本错误：' + (event.message || '未知错误'));
+        });
+
+        window.addEventListener('unhandledrejection', function(event) {
+            const reason = event.reason && (event.reason.message || event.reason.toString())
+                ? (event.reason.message || event.reason.toString())
+                : '未知错误';
+            reportError('验证码页面异步错误：' + reason);
+        });
+
+        function loadCaptchaScript() {
+            if (window.initNECaptcha) {
+                return Promise.resolve();
+            }
+            if (captchaLoading) {
+                return captchaLoading;
+            }
+
+            setStatus('正在加载网易验证码脚本...', 'loading');
+            captchaLoading = new Promise(function(resolve, reject) {
+                const script = document.createElement('script');
+                const timer = setTimeout(function() {
+                    script.remove();
+                    reject(new Error('网易验证码脚本加载超时'));
+                }, 15000);
+
+                script.nonce = scriptNonce;
+                script.src = 'https://cstaticdun.126.net/load.min.js';
+                script.onload = function() {
+                    clearTimeout(timer);
+                    if (window.initNECaptcha) {
+                        resolve();
+                    } else {
+                        reject(new Error('网易验证码脚本已加载，但 initNECaptcha 不存在'));
+                    }
+                };
+                script.onerror = function() {
+                    clearTimeout(timer);
+                    reject(new Error('网易验证码脚本加载失败'));
+                };
+                document.head.appendChild(script);
+            });
+
+            return captchaLoading;
+        }
+
+        function initCaptcha() {
+            if (!window.initNECaptcha) {
+                reportError('验证码脚本未就绪，请刷新重试。');
+                return;
+            }
+
+            setStatus('正在初始化验证码...', 'loading');
+            window.initNECaptcha({
+                captchaId,
+                element: '#captcha',
+                mode: 'embed',
+                lang: 'zh-CN',
+                width: 260,
+                onVerify(error, data) {
+                    if (error) {
+                        setStatus('验证码校验失败，请重试。', 'error');
+                        return;
+                    }
+                    if (data && data.validate) {
+                        setStatus('验证完成，正在继续登录...', 'success');
+                        vscode.postMessage({ type: 'captchaSuccess', validate: data.validate });
+                    }
+                }
+            }, function(instance) {
+                captchaInstance = instance;
+                setStatus('请完成上方验证码。', 'ready');
+            }, function(error) {
+                const message = error && (error.message || error.msg) ? (error.message || error.msg) : '验证码初始化失败';
+                reportError(message);
+            });
+        }
+
+        refreshButton.addEventListener('click', function() {
+            if (captchaInstance && captchaInstance.refresh) {
+                captchaInstance.refresh();
+                setStatus('请完成上方验证码。', 'ready');
+            } else {
+                loadCaptchaScript().then(initCaptcha).catch(function(error) {
+                    reportError(error.message || '验证码脚本加载失败');
+                });
+            }
+        });
+
+        loadCaptchaScript().then(initCaptcha).catch(function(error) {
+            reportError(error.message || '验证码脚本加载失败');
+        });
+    </script>
+</body>
+</html>

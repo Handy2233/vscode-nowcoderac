@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import axios from 'axios';
 
 export class NowcoderAuthenticationProvider implements vscode.AuthenticationProvider {
     private readonly sessionChangeEmitter = new vscode.EventEmitter<vscode.AuthenticationProviderAuthenticationSessionsChangeEvent>();
@@ -16,9 +17,26 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         return [this.token2Session(token)];
     }
 
+    private async fetchCurrentUserName(token: string): Promise<string | undefined> {
+        try {
+            const response = await axios.get<string>('https://ac.nowcoder.com/acm/contest/vip-index', {
+                headers: {
+                    Cookie: `t=${token}`,
+                    Accept: 'text/html'
+                },
+                responseType: 'text'
+            });
+
+            return response.data.match(/ownerName:\s*['"]([^'"]+)['"]/)?.[1];
+        } catch (error) {
+            console.error('Error fetching NowCoder user name:', error);
+            return undefined;
+        }
+    }
+
     async createSession(scopes: string[]): Promise<vscode.AuthenticationSession> {
         const cookieStr = await vscode.window.showInputBox({
-            prompt: '请输入cookie,获取方法见插件详情',
+            prompt: "请输入cookie,具体方法见插件详情",
             ignoreFocusOut: true,
             password: false
         });
@@ -43,12 +61,13 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         }
         token.replaceAll('\'', '');
         token.replaceAll('"', '');
+        const userName = await this.fetchCurrentUserName(token);
 
         const session: vscode.AuthenticationSession = {
             id: Date.now().toString(),
             accessToken: token,
             account: {
-                label: 'NowCoder User',
+                label: userName ?? 'NowCoder User',
                 id: Date.now().toString()
             },
             scopes: []

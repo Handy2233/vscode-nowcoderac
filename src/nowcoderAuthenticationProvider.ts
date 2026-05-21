@@ -122,6 +122,23 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         this.outputChannel.appendLine(`[${new Date().toISOString()}] ${message}${suffix}`);
     }
 
+    private getErrorMessage(error: unknown): string {
+        const message = error instanceof Error ? error.message : String(error);
+        return message || '牛客登录失败';
+    }
+
+    private showLoginError(message: string): void {
+        void vscode.window.showErrorMessage(message);
+    }
+
+    private showLoginWarning(message: string): void {
+        void vscode.window.showWarningMessage(message);
+    }
+
+    private cancelLogin(): never {
+        throw new vscode.CancellationError();
+    }
+
     private getCookieValue(cookieHeader: string, key: string): string | undefined {
         return cookieHeader
             .split(';')
@@ -203,7 +220,7 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         };
     }
 
-    private async getNeteaseCaptcha(cookieHeader: string): Promise<NowcoderCaptchaResult> {
+    private async getNeteaseCaptcha(cookieHeader: string): Promise<NowcoderCaptchaResult | undefined> {
         const captchaResponse = await axios.get<NowcoderResponse<NowcoderCaptchaConfig>>(
             'https://www.nowcoder.com/captcha/geetest/login',
             {
@@ -235,7 +252,8 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
             hasCaptchaId: Boolean(captchaId)
         });
         if (!captchaId) {
-            throw new Error(captchaResponse.data.msg || captchaResponse.data.message || '获取牛客验证码配置失败');
+            this.showLoginError(captchaResponse.data.msg || captchaResponse.data.message || '获取牛客验证码配置失败');
+            return undefined;
         }
         return {
             captchaId,
@@ -323,7 +341,7 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
                     for (const disposable of disposables) {
                         disposable.dispose();
                     }
-                    reject(new Error('已取消验证码验证'));
+                    reject(new vscode.CancellationError());
                 }
             }));
         });
@@ -351,7 +369,7 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => replacements[key] ?? match);
     }
 
-    private async getWechatQrCode(cookieHeader: string): Promise<NowcoderWechatQrCodeResult> {
+    private async getWechatQrCode(cookieHeader: string): Promise<NowcoderWechatQrCodeResult | undefined> {
         const response = await axios.get<NowcoderResponse<NowcoderWechatQrCodeConfig>>(
             'https://www.nowcoder.com/oauth2/login/wechat_qr_code',
             {
@@ -384,7 +402,8 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         });
 
         if (response.data.code !== 0 || !ticket || !imageUrl) {
-            throw new Error(response.data.msg || response.data.message || '获取微信登录二维码失败');
+            this.showLoginError(response.data.msg || response.data.message || '获取微信登录二维码失败');
+            return undefined;
         }
 
         return {
@@ -436,9 +455,12 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         };
     }
 
-    private async loginWithWechat(): Promise<string> {
+    private async loginWithWechat(): Promise<string | undefined> {
         const initialCookieHeader = await this.initLoginCookie();
         const qrCode = await this.getWechatQrCode(initialCookieHeader);
+        if (!qrCode) {
+            return undefined;
+        }
         const panel = vscode.window.createWebviewPanel(
             'nowcoderWechatLogin',
             '牛客微信扫码登录',
@@ -478,11 +500,16 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
                     return result.token;
                 }
                 if (result.response.data?.code !== 1) {
-                    throw new Error(this.getLoginFailureMessage(result, '微信扫码登录失败'));
+                    this.showLoginError(this.getLoginFailureMessage(result, '微信扫码登录失败'));
+                    return undefined;
                 }
             }
 
-            throw new Error(disposed ? '已取消微信扫码登录' : '微信登录二维码已过期，请重新登录');
+            if (disposed) {
+                return this.cancelLogin();
+            }
+            this.showLoginWarning('微信登录二维码已过期，请重新登录');
+            return undefined;
         } finally {
             disposeListener.dispose();
             if (!disposed) {
@@ -496,13 +523,14 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         return message || `${fallback}，状态码 ${result.response.status}`;
     }
 
-    private async loginWithPassword(account: string, password: string): Promise<string> {
+    private async loginWithPassword(account: string, password: string): Promise<string | undefined> {
         const configResponse = await axios.get<NowcoderResponse<NowcoderEnvironmentConfig>>(
             'https://www.nowcoder.com/environment/config'
         );
         const publicKey = configResponse.data.data?.rsaPublicKey;
         if (!publicKey) {
-            throw new Error('获取牛客登录公钥失败');
+            this.showLoginError('获取牛客登录公钥失败');
+            return undefined;
         }
 
         const cipherPwd = this.encryptPassword(password, publicKey);
@@ -516,10 +544,14 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         }
 
         if (firstResult.response.data?.code !== 1125) {
-            throw new Error(this.getLoginFailureMessage(firstResult));
+            this.showLoginError(this.getLoginFailureMessage(firstResult));
+            return undefined;
         }
 
         const captcha = await this.getNeteaseCaptcha(firstResult.cookieHeader);
+        if (!captcha) {
+            return undefined;
+        }
         const neteaseValidate = await this.showNeteaseCaptcha(captcha.captchaId);
         const retryResult = await this.postPasswordLogin(
             account,
@@ -530,7 +562,8 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
 
         const token = retryResult.token;
         if (!token) {
-            throw new Error(this.getLoginFailureMessage(retryResult));
+            this.showLoginError(this.getLoginFailureMessage(retryResult));
+            return undefined;
         }
         return token;
     }
@@ -621,17 +654,21 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         };
     }
 
-    private async sendSmsCode(account: string, cookieHeader: string): Promise<string> {
+    private async sendSmsCode(account: string, cookieHeader: string): Promise<string | undefined> {
         const firstResult = await this.postSmsCodeRequest(account, cookieHeader);
         if (firstResult.response.data?.code === 0) {
             return firstResult.cookieHeader;
         }
 
         if (firstResult.response.data?.code !== 1125) {
-            throw new Error(this.getLoginFailureMessage(firstResult, '发送手机验证码失败'));
+            this.showLoginError(this.getLoginFailureMessage(firstResult, '发送手机验证码失败'));
+            return undefined;
         }
 
         const captcha = await this.getNeteaseCaptcha(firstResult.cookieHeader);
+        if (!captcha) {
+            return undefined;
+        }
         const neteaseValidate = await this.showNeteaseCaptcha(captcha.captchaId);
         const retryResult = await this.postSmsCodeRequest(
             account,
@@ -639,7 +676,8 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
             neteaseValidate
         );
         if (retryResult.response.data?.code !== 0) {
-            throw new Error(this.getLoginFailureMessage(retryResult, '发送手机验证码失败'));
+            this.showLoginError(this.getLoginFailureMessage(retryResult, '发送手机验证码失败'));
+            return undefined;
         }
         return retryResult.cookieHeader;
     }
@@ -696,7 +734,7 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         };
     }
 
-    private async loginWithSms(phone: string): Promise<string> {
+    private async loginWithSms(phone: string): Promise<string | undefined> {
         const account = this.normalizeSmsAccount(phone);
         const initialCookieHeader = await this.initLoginCookie();
         this.debugLogin('sms login started', {
@@ -705,22 +743,162 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         });
 
         const smsCookieHeader = await this.sendSmsCode(account, initialCookieHeader);
+        if (!smsCookieHeader) {
+            return undefined;
+        }
         vscode.window.showInformationMessage('手机验证码已发送，请查收短信。');
-        const smsCode = await vscode.window.showInputBox({
-            prompt: '验证码已发送，请输入验证码',
-            ignoreFocusOut: true,
-            password: false
-        });
-        if (!smsCode) {
-            throw new Error('手机验证码不能为空');
-        }
+        while (true) {
+            const smsCode = await vscode.window.showInputBox({
+                prompt: '验证码已发送，请输入验证码',
+                ignoreFocusOut: true,
+                password: false
+            });
+            if (smsCode === undefined) {
+                return this.cancelLogin();
+            }
+            if (!smsCode.trim()) {
+                this.showLoginError('手机验证码不能为空');
+                continue;
+            }
 
-        const loginResult = await this.postSmsLogin(account, smsCode.trim(), smsCookieHeader);
-        const token = loginResult.token;
-        if (!token) {
-            throw new Error(this.getLoginFailureMessage(loginResult, '手机验证码登录失败'));
+            const loginResult = await this.postSmsLogin(account, smsCode.trim(), smsCookieHeader);
+            const token = loginResult.token;
+            if (!token) {
+                this.showLoginError(this.getLoginFailureMessage(loginResult, '手机验证码登录失败'));
+                continue;
+            }
+            return token;
         }
-        return token;
+    }
+
+    private async handleLoginAttemptError(error: unknown): Promise<void> {
+        if (error instanceof vscode.CancellationError) {
+            throw error;
+        }
+        this.outputChannel.show(true);
+        this.showLoginError(this.getErrorMessage(error));
+    }
+
+    private async promptPasswordLogin(): Promise<string> {
+        while (true) {
+            const account = await vscode.window.showInputBox({
+                prompt: '请输入牛客账号/手机号/邮箱',
+                ignoreFocusOut: true
+            });
+            if (account === undefined) {
+                return this.cancelLogin();
+            }
+            if (!account.trim()) {
+                this.showLoginError('账号不能为空');
+                continue;
+            }
+
+            while (true) {
+                const password = await vscode.window.showInputBox({
+                    prompt: '请输入牛客密码',
+                    ignoreFocusOut: true,
+                    password: true
+                });
+                if (password === undefined) {
+                    return this.cancelLogin();
+                }
+                if (!password) {
+                    this.showLoginError('密码不能为空');
+                    continue;
+                }
+
+                try {
+                    const token = await this.loginWithPassword(account.trim(), password);
+                    if (token) {
+                        return token;
+                    }
+                } catch (error) {
+                    await this.handleLoginAttemptError(error);
+                }
+                break;
+            }
+        }
+    }
+
+    private async promptSmsLogin(): Promise<string> {
+        while (true) {
+            const phone = await vscode.window.showInputBox({
+                prompt: '请输入牛客绑定手机号',
+                ignoreFocusOut: true
+            });
+            if (phone === undefined) {
+                return this.cancelLogin();
+            }
+            const normalizedPhone = phone.trim();
+            if (!normalizedPhone) {
+                this.showLoginError('手机号不能为空');
+                continue;
+            }
+            if (normalizedPhone.length != 11 || normalizedPhone[0] != '1') {
+                this.showLoginError('手机号码必须是11位中国大陆手机号');
+                continue;
+            }
+
+            try {
+                const token = await this.loginWithSms(normalizedPhone);
+                if (token) {
+                    return token;
+                }
+            } catch (error) {
+                await this.handleLoginAttemptError(error);
+            }
+        }
+    }
+
+    private async promptWechatLogin(): Promise<string> {
+        while (true) {
+            try {
+                const token = await this.loginWithWechat();
+                if (token) {
+                    return token;
+                }
+            } catch (error) {
+                await this.handleLoginAttemptError(error);
+            }
+        }
+    }
+
+    private async promptCookieLogin(): Promise<string> {
+        while (true) {
+            const cookieStr = await vscode.window.showInputBox({
+                prompt: "请输入Cookie,具体方法见插件详情",
+                ignoreFocusOut: true,
+                password: false
+            });
+
+            if (cookieStr === undefined) {
+                return this.cancelLogin();
+            }
+            if (!cookieStr.trim()) {
+                this.showLoginError('Cookie不能为空');
+                continue;
+            }
+
+            let token: string | undefined;
+            if (cookieStr.indexOf('=') === -1) {
+                token = cookieStr.trim();
+            } else {
+                const cookieParts = cookieStr.split(';').map(part => part.split('='));
+                const cookieObj: { [key: string]: string } = {};
+                for (const [key, value] of cookieParts) {
+                    if (key && value) {
+                        cookieObj[key.trim()] = value.trim();
+                    }
+                }
+                token = cookieObj['t'];
+            }
+
+            if (!token) {
+                this.showLoginError('无效的cookie/token值');
+                continue;
+            }
+            return token;
+        }
     }
 
     async createSession(scopes: string[]): Promise<vscode.AuthenticationSession> {
@@ -742,85 +920,20 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         });
 
         if (!loginMode) {
-            throw new Error('已取消登录');
+            return this.cancelLogin();
         }
 
-        var token;
+        let token: string;
         if (loginMode.label === '账号密码登录') {
-            const account = await vscode.window.showInputBox({
-                prompt: '请输入牛客账号/手机号/邮箱',
-                ignoreFocusOut: true
-            });
-            if (!account) {
-                throw new Error('账号不能为空');
-            }
-
-            const password = await vscode.window.showInputBox({
-                prompt: '请输入牛客密码',
-                ignoreFocusOut: true,
-                password: true
-            });
-            if (!password) {
-                throw new Error('密码不能为空');
-            }
-
-            try {
-                token = await this.loginWithPassword(account, password);
-            } catch (error) {
-                this.outputChannel.show(true);
-                throw error;
-            }
+            token = await this.promptPasswordLogin();
         } else if (loginMode.label === '手机验证码登录') {
-            const phone = await vscode.window.showInputBox({
-                prompt: '请输入牛客绑定手机号',
-                ignoreFocusOut: true
-            });
-            if (!phone) {
-                throw new Error('手机号不能为空');
-            }
-            if (phone.length != 11 || phone[0] != '1') {
-                throw new Error('手机号码必须是11位中国大陆手机号');
-            }
-
-            try {
-                token = await this.loginWithSms(phone);
-            } catch (error) {
-                this.outputChannel.show(true);
-                throw error;
-            }
+            token = await this.promptSmsLogin();
         } else if (loginMode.label === '微信扫码登录') {
-            try {
-                token = await this.loginWithWechat();
-            } catch (error) {
-                this.outputChannel.show(true);
-                throw error;
-            }
+            token = await this.promptWechatLogin();
         } else {
-            const cookieStr = await vscode.window.showInputBox({
-                prompt: "请输入Cookie,具体方法见插件详情",
-                ignoreFocusOut: true,
-                password: false
-            });
-
-            if (!cookieStr) {
-                throw new Error('Cookie不能为空');
-            }
-
-            if (cookieStr.indexOf('=') === -1) {
-                token = cookieStr;
-            } else {
-                const cookieParts = cookieStr.split(';').map(part => part.split('='));
-                const cookieObj: { [key: string]: string } = {};
-                for (const [key, value] of cookieParts) {
-                    cookieObj[key.trim()] = value.trim();
-                }
-                token = cookieObj['t'];
-            }
+            token = await this.promptCookieLogin();
         }
-        if (!token) {
-            throw new Error('无效的cookie/token值');
-        }
-        token = token.replaceAll('\'', '').replaceAll('"', '');
+        token = token.trim().replaceAll('\'', '').replaceAll('"', '');
         const userName = await this.fetchCurrentUserName(token);
 
         const session: vscode.AuthenticationSession = {

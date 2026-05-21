@@ -2,7 +2,7 @@
   "name": "nowcoderac-plus",
   "displayName": "NowCoderAC Plus",
   "description": "Solve nowcoder contest problems in VSCode fully",
-  "version": "0.3.5",
+  "version": "1.0.0",
   "icon": "resources/icon.png",
   "publisher": "Handy2233",
   "repository": {

@@ -104,6 +104,41 @@ export interface ContestInfo {
 }
 
 /**
+ * 牛客竞赛当前登录用户信息
+ */
+export interface AcmCurrentUser {
+    uid: number;
+    name: string;
+}
+
+/**
+ * 竞赛消息轮询接口响应
+ */
+export interface ContestMessagePing {
+    stopPing: boolean;
+    newMsgCount: number;
+}
+
+/**
+ * 竞赛消息列表接口响应
+ */
+export interface ContestMessageList {
+    totalPage: number;
+    messages: ContestMessage[];
+}
+
+/**
+ * 竞赛消息。type === 3 表示比赛公告。
+ */
+export interface ContestMessage {
+    sender: number;
+    id: number;
+    isAcmManager: boolean;
+    type: number | string;
+    content: string;
+}
+
+/**
  * 比赛题目列表
  */
 export interface ContestProblemList {

@@ -5,6 +5,10 @@ import { Problem, SubmissionStatus, NowcoderCompiler, ProblemInfo, ProblemExtra,
 import { CphService } from './cphService';
 import { IContestDataProvider } from './contestDataProvider.interface';
 
+function hasSubmitMetadata(extra: ProblemExtra | undefined): extra is ProblemExtra {
+    return !!extra?.questionId && !!extra.tagId && !!extra.subTagId && !!extra.doneQuestionId;
+}
+
 /**
  * 管理NowCoder比赛、题目和提交
  */
@@ -162,9 +166,11 @@ export class ContestService implements IContestDataProvider {
         if (!problem) {
             throw new Error(`题目"${problemIndex}"不存在`);
         }
-        problem.extra ??= await this.getProblemExtra(problemIndex) ?? undefined;
-        if (!problem.extra) {
-            throw new Error(`获取题目"${problemIndex}"详情失败`);
+        if (!hasSubmitMetadata(problem.extra)) {
+            problem.extra = await this.getProblemExtra(problemIndex, true) ?? undefined;
+        }
+        if (!hasSubmitMetadata(problem.extra)) {
+            throw new Error(`题目"${problemIndex}"提交参数解析失败，请重新打开题目或刷新题目内容`);
         }
 
         const responseResult = await nowcoderService.submitSolution(

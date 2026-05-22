@@ -117,6 +117,12 @@ export class NowcoderService {
             if (response.code === 1 && response.msg === '请先登录') {
                 return this.tokenExpired();
             }
+            if (response.code !== 0) {
+                return ApiResult.failure(response.msg || `提交失败，错误码: ${response.code}`);
+            }
+            if (!Number.isFinite(response.data)) {
+                return ApiResult.failure('提交失败：牛客未返回提交ID');
+            }
             return ApiResult.success(response);
         } catch (error) {
             console.error(`Error submitting solution for ${questionId}:`, error);

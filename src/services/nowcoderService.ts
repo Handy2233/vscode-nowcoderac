@@ -64,6 +64,30 @@ export class NowcoderService {
             return ApiResult.failure('网络错误: ' + (error instanceof Error ? error.message : String(error)));
         }
     }
+
+    /**
+     * 获取比赛标题
+     * @param contestId 比赛ID
+     * @returns 比赛标题
+     */
+    async getContestTitle(contestId: number): Promise<ApiResult<string>> {
+        try {
+            const url = `${NowcoderService.BASE_URL}/acm/contest/contest-info?id=${contestId}`;
+            const response = await httpClient.get<Response<Partial<ContestInfo>>>(url);
+            if (response && response.code === 0 && response.data) {
+                const title = response.data.name || response.data.competitionName_var;
+                if (title) {
+                    return ApiResult.success(title);
+                }
+                return ApiResult.failure('比赛标题为空');
+            }
+            console.error('Failed to get contest title:', response?.msg);
+            return ApiResult.failure(response?.msg || '未知错误');
+        } catch (error) {
+            console.error(`Error fetching contest title for ${contestId}:`, error);
+            return ApiResult.failure('网络错误: ' + (error instanceof Error ? error.message : String(error)));
+        }
+    }
     
     /**
      * 获取比赛的题目列表

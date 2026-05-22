@@ -8,6 +8,15 @@ import { CodeHelper } from '../utils/codeHelper';
 import { ContestService } from './contestService';
 import { ProblemItem } from '../views/problemsProvider';
 import { NowcoderAuthenticationProvider } from '../nowcoderAuthenticationProvider';
+import {
+    getAutoGenerateCphProblemPref,
+    getContestWorkspaceRootPathPref,
+    getLastCphSaveLocation,
+    getOpenProblemPreviewToSidePref,
+    getReuseLastCphSaveLocationPref,
+    updateLastCphSaveLocation,
+    updateContestWorkspaceRootPathPref
+} from '../utils/perferenceHelper';
 
 async function ensureInContest(callback: (currentContest: ContestService) => Promise<void>) {
     const contestManager = ContestSpaceManager.getInstance().getContestService();
@@ -16,6 +25,44 @@ async function ensureInContest(callback: (currentContest: ContestService) => Pro
         return;
     }
     await callback(contestManager);
+}
+
+async function selectCphSaveLocation(context: vscode.ExtensionContext, contestFolderPath: string): Promise<string | undefined> {
+    const reuseLastSaveLocation = getReuseLastCphSaveLocationPref();
+    const lastSaveLocation = getLastCphSaveLocation(context);
+    if (reuseLastSaveLocation && lastSaveLocation) {
+        return lastSaveLocation;
+    }
+
+    const cphFolderUri = await vscode.window.showOpenDialog({
+        canSelectFiles: false,
+        canSelectFolders: true,
+        canSelectMany: false,
+        defaultUri: vscode.Uri.file(contestFolderPath),
+        openLabel: '选择 CPH 测试数据保存位置'
+    });
+
+    if (!cphFolderUri || cphFolderUri.length === 0) {
+        return undefined;
+    }
+
+    const selectedPath = cphFolderUri[0].fsPath;
+    if (!reuseLastSaveLocation) {
+        return selectedPath;
+    }
+
+    const confirm = await vscode.window.showInformationMessage(
+        `是否将 ${selectedPath} 保存为后续 CPH 测试数据目录？`,
+        { modal: true },
+        '保存并使用',
+        '仅本次使用'
+    );
+
+    if (confirm === '保存并使用') {
+        await updateLastCphSaveLocation(context, selectedPath);
+    }
+
+    return selectedPath;
 }
 
 export const createContestSpace = async () => {
@@ -36,17 +83,22 @@ export const createContestSpace = async () => {
             return;
         }
 
+        const defaultWorkspaceRootPath = getContestWorkspaceRootPathPref();
+
         // 让用户选择目标文件夹
         const folderUri = await vscode.window.showOpenDialog({
             canSelectFiles: false,
             canSelectFolders: true,
             canSelectMany: false,
+            defaultUri: defaultWorkspaceRootPath ? vscode.Uri.file(defaultWorkspaceRootPath) : undefined,
             openLabel: '选择保存位置'
         });
 
         if (!folderUri || folderUri.length === 0) {
             return;
         }
+
+        await updateContestWorkspaceRootPathPref(folderUri[0].fsPath);
 
         // 创建比赛文件夹
         const contestFolderPath = path.join(folderUri[0].fsPath, contestIdStr);
@@ -113,14 +165,17 @@ export const openProblem = async (problemItem: ProblemItem | undefined): Promise
             fs.mkdirSync(contestFolderPath, { recursive: true });
             fs.writeFileSync(filePath, content);
             
-            // 打开文件
             const document = await vscode.workspace.openTextDocument(filePath);
-            vscode.commands.executeCommand('markdown.showPreviewToSide', document.uri);
+            if (getOpenProblemPreviewToSidePref()) {
+                vscode.commands.executeCommand('markdown.showPreviewToSide', document.uri);
+            } else {
+                await vscode.window.showTextDocument(document, { preview: false });
+            }
         });
     });
 };
 
-export const createCodeFile = async (problemItem: ProblemItem | undefined, generateCphProb: boolean = true): Promise<void> => {
+export const createCodeFile = async (context: vscode.ExtensionContext, problemItem: ProblemItem | undefined, generateCphProb: boolean = true): Promise<void> => {
     if (!problemItem) {
         return;
     }
@@ -142,21 +197,26 @@ export const createCodeFile = async (problemItem: ProblemItem | undefined, gener
             fs.writeFileSync(filePath, compilerMarkText, 'utf-8');
         }
 
-        if (generateCphProb) {
+        if (generateCphProb && getAutoGenerateCphProblemPref()) {
             console.info('Creating prob file...');
             try {
-                const cphService = currentContest.cphService;
-                const existingProb = cphService.readExistingProb(fileName);
-                if (!existingProb || !existingProb.tests || existingProb.tests.length === 0) {
-                    if (!problem.extra) {
-                        problem.extra = await currentContest.getProblemExtra(problem.info.index);
-                    }
+                const cphSaveLocation = await selectCphSaveLocation(context, contestFolderPath);
+                if (!cphSaveLocation) {
+                    vscode.window.showWarningMessage('未选择 CPH 测试数据保存位置，已跳过生成 .prob 文件');
+                } else {
+                    const cphService = currentContest.cphService;
+                    const existingProb = cphService.readExistingProb(fileName, cphSaveLocation);
+                    if (!existingProb || !existingProb.tests || existingProb.tests.length === 0) {
+                        if (!problem.extra) {
+                            problem.extra = await currentContest.getProblemExtra(problem.info.index);
+                        }
 
-                    const prob = cphService.createProb(fileName, problem);
-                    if (prob) {
-                        cphService.saveProb(fileName, prob);
-                    } else {
-                        console.error('Failed to create prob file');
+                        const prob = cphService.createProb(fileName, problem);
+                        if (prob) {
+                            cphService.saveProb(fileName, prob, cphSaveLocation);
+                        } else {
+                            console.error('Failed to create prob file');
+                        }
                     }
                 }
             } catch (error) {

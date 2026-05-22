@@ -3,7 +3,6 @@ import crypto from 'crypto';
 import fs from 'fs';
 import { CphProb, CphTest, Problem } from "../models/models";
 import { ContestService } from "./contestService";
-import { getCphSaveLocationPref } from "../utils/perferenceHelper";
 
 export class CphService {
     private contestManager: ContestService;
@@ -17,7 +16,7 @@ export class CphService {
      * @param srcFileName 源文件名
      * @returns prob文件路径
      */
-    private getProbPath(srcFileName: string) : string | null {
+    private getProbPath(srcFileName: string, cphSaveLocation: string) : string | null {
         const contestPath = this.contestManager.getContestFolderPath();
         if (!contestPath) {
             return null;
@@ -30,13 +29,7 @@ export class CphService {
             .digest('hex')
             .substr(0);
         const baseProbName = `.${srcFileName}_${hash}.prob`;
-        var cphSaveLocation = getCphSaveLocationPref();
-        if (cphSaveLocation === '') {
-            cphSaveLocation = undefined;
-        }
-
-        const cphFolder = cphSaveLocation ?? path.join(contestPath, '.cph');
-        return path.join(cphFolder, baseProbName);
+        return path.join(cphSaveLocation, baseProbName);
     }
 
     /**
@@ -44,8 +37,8 @@ export class CphService {
      * @param srcFileName 源文件名
      * @returns prob模型
      */
-    readExistingProb(srcFileName: string) : CphProb | undefined {
-        const probPath = this.getProbPath(srcFileName);
+    readExistingProb(srcFileName: string, cphSaveLocation: string) : CphProb | undefined {
+        const probPath = this.getProbPath(srcFileName, cphSaveLocation);
         if (!probPath) {
             return undefined;
         }
@@ -65,8 +58,8 @@ export class CphService {
      * @param prob prob模型
      * @returns 是否成功保存
      */
-    saveProb(srcFileName: string, prob: CphProb) : boolean {
-        const probPath = this.getProbPath(srcFileName);
+    saveProb(srcFileName: string, prob: CphProb, cphSaveLocation: string) : boolean {
+        const probPath = this.getProbPath(srcFileName, cphSaveLocation);
         if (!probPath) {
             return false;
         }

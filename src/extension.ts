@@ -55,7 +55,7 @@ export function activate(context: vscode.ExtensionContext) {
     // 注册创建比赛工作空间命令
     const createWorkspaceDisposable = vscode.commands.registerCommand('nowcoderac.createContestSpace', createContestSpace);
     context.subscriptions.push(createWorkspaceDisposable);
-    
+
     // 刷新题目列表命令
     const refreshProblemListDisposable = vscode.commands.registerCommand('nowcoderac.refreshProblemList', refreshProblemList);
     context.subscriptions.push(refreshProblemListDisposable);
@@ -65,7 +65,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(openProblemDisposable);
 
     // 创建代码文件命令
-    const createCodeFileDisposable = vscode.commands.registerCommand('nowcoderac.createCodeFile', createCodeFile);
+    const createCodeFileDisposable = vscode.commands.registerCommand('nowcoderac.createCodeFile', (problemItem, generateCphProb) => createCodeFile(context, problemItem, generateCphProb));
     context.subscriptions.push(createCodeFileDisposable);
     
     // 提交解答命令

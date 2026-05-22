@@ -2,9 +2,15 @@ import * as vscode from 'vscode';
 import { NowcoderCompiler, COMPILER_CONFIG, Problem, SubmissionStatus } from "../models/models";
 import { ContestSpaceManager } from '../services/contestSpaceManager';
 import { nowcoderService } from '../services/nowcoderService';
+import { getDefaultCompilerPref } from './perferenceHelper';
 
 export class UserInteractiveHelper {
     static async askCompiler() : Promise<NowcoderCompiler | null> {
+        const defaultCompiler = getDefaultCompilerPref();
+        if (defaultCompiler) {
+            return defaultCompiler;
+        }
+
         const compilerOptions = Object.entries(COMPILER_CONFIG).map(([key, value]) => {
             return { 
                 label: value.name, 

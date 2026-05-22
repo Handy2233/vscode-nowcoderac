@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ContestService } from './contestService';
+import { getAutoDetectContestConfigPref } from '../utils/perferenceHelper';
 
 export class ContestSpaceManager extends vscode.Disposable {
     private static instance: ContestSpaceManager | undefined = undefined;
@@ -24,6 +25,10 @@ export class ContestSpaceManager extends vscode.Disposable {
     }
 
     private async handleActiveEditorChange(editor: vscode.TextEditor | undefined): Promise<void> {
+        if (!getAutoDetectContestConfigPref()) {
+            return;
+        }
+
         if (!editor || editor.document.uri.scheme !== 'file') {
             return;
         }

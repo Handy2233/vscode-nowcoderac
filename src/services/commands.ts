@@ -212,9 +212,26 @@ export const refreshRealtimeRank = async () => {
     });
 };
 
+function isCancellationError(error: unknown): boolean {
+    if (error instanceof vscode.CancellationError) {
+        return true;
+    }
+    if (!(error instanceof Error)) {
+        return false;
+    }
+    return error.name === 'Canceled' || error.message === 'Canceled';
+}
+
 export const login = async (context: vscode.ExtensionContext) => {
     await NowcoderAuthenticationProvider.clearToken(context);
-    await vscode.authentication.getSession('nowcoderac', [], { createIfNone: true });
+    try {
+        await vscode.authentication.getSession('nowcoderac', [], { createIfNone: true });
+    } catch (error) {
+        if (isCancellationError(error)) {
+            return;
+        }
+        throw error;
+    }
 };
 
 export const logout = async (context: vscode.ExtensionContext) => {

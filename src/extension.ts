@@ -7,14 +7,26 @@ import { ContestSpaceManager } from './services/contestSpaceManager';
 import { createCodeFile, openProblem, createContestSpace, refreshProblemList, submitSolution, refreshSubmissionList, refreshRealtimeRank, login, logout } from './services/commands';
 import { ContestServiceEventWrapper } from './utils/contestServiceEventWrapper';
 import { ContestCountdownTimer } from './utils/contestCountdownTimer';
+import { ContestAnnouncementWatcher } from './services/contestAnnouncementWatcher';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
 export function activate(context: vscode.ExtensionContext) {
     console.log('牛客竞赛扩展已激活');
-    
-    // 初始化视图提供者
+
+    // 注册身份验证提供者
+    const authProvider = new NowcoderAuthenticationProvider(context);
+    context.subscriptions.push(
+        vscode.authentication.registerAuthenticationProvider(
+            "nowcoderac",
+            "NowcoderAC",
+            authProvider
+        )
+    );
+
     const contestSpaceManager = ContestSpaceManager.createInstance(context);
+
+    // 初始化视图提供者
     const contestServiceEventWrapper = new ContestServiceEventWrapper(contestSpaceManager);
     const problemsProvider = new ProblemsProvider(contestServiceEventWrapper);
     const submissionsProvider = new SubmissionsProvider(contestServiceEventWrapper);
@@ -23,6 +35,10 @@ export function activate(context: vscode.ExtensionContext) {
     // 初始化倒计时
     const countdownTimer = new ContestCountdownTimer();
     context.subscriptions.push(countdownTimer);
+
+    // 初始化比赛公告监听
+    const announcementWatcher = new ContestAnnouncementWatcher(context, contestSpaceManager);
+    context.subscriptions.push(announcementWatcher);
 
     context.subscriptions.push(contestSpaceManager);
     
@@ -42,16 +58,6 @@ export function activate(context: vscode.ExtensionContext) {
     });
     context.subscriptions.push(rankingsTreeView);
     
-    // 注册身份验证提供者
-    const authProvider = new NowcoderAuthenticationProvider(context);
-    context.subscriptions.push(
-        vscode.authentication.registerAuthenticationProvider(
-            "nowcoderac",
-            "NowcoderAC",
-            authProvider
-        )
-    );
-
     // 注册创建比赛工作空间命令
     const createWorkspaceDisposable = vscode.commands.registerCommand('nowcoderac.createContestSpace', createContestSpace);
     context.subscriptions.push(createWorkspaceDisposable);

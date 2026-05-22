@@ -8,6 +8,7 @@ import { createCodeFile, openProblem, createContestSpace, refreshProblemList, su
 import { ContestServiceEventWrapper } from './utils/contestServiceEventWrapper';
 import { ContestCountdownTimer } from './utils/contestCountdownTimer';
 import { ContestAnnouncementWatcher } from './services/contestAnnouncementWatcher';
+import { ContestProblemUpdateWatcher } from './services/contestProblemUpdateWatcher';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -39,6 +40,10 @@ export function activate(context: vscode.ExtensionContext) {
     // 初始化比赛公告监听
     const announcementWatcher = new ContestAnnouncementWatcher(context, contestSpaceManager);
     context.subscriptions.push(announcementWatcher);
+
+    // 初始化比赛题面和 CPH 更新监听
+    const problemUpdateWatcher = new ContestProblemUpdateWatcher(contestSpaceManager);
+    context.subscriptions.push(problemUpdateWatcher);
 
     context.subscriptions.push(contestSpaceManager);
     

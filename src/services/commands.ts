@@ -8,6 +8,7 @@ import { CodeHelper } from '../utils/codeHelper';
 import { ContestService } from './contestService';
 import { ProblemItem } from '../views/problemsProvider';
 import { NowcoderAuthenticationProvider } from '../nowcoderAuthenticationProvider';
+import { getProblemMarkdownPath, writeProblemMarkdown } from '../utils/problemMarkdown';
 
 async function ensureInContest(callback: (currentContest: ContestService) => Promise<void>) {
     const contestManager = ContestSpaceManager.getInstance().getContestService();
@@ -88,30 +89,8 @@ export const openProblem = async (problemItem: ProblemItem | undefined): Promise
             }
 
             const contestFolderPath = currentContest.getContestFolderPath();
-            const fileName = `${problem.info.index}.md`;
-            const filePath = path.join(contestFolderPath, fileName);
-
-            // 生成Markdown内容
-            let content = `# ${problem.info.index}. ${problem.info.title}\n\n`;
-            content += extra.content;
-
-            // 添加样例
-            if (extra.examples && extra.examples.length > 0) {
-                content += '## 样例\n\n';
-
-                extra.examples.forEach((example, index) => {
-                    content += `### 样例 ${index + 1}\n`;
-                    content += `**输入**:\n\`\`\`\n${example.input}\n\`\`\`\n\n`;
-                    content += `**输出**:\n\`\`\`\n${example.output}\n\`\`\`\n\n`;
-                    if (example.tips) {
-                        content += `**说明**:  \n\n${example.tips}\n\n`;
-                    }
-                });
-            }
-
-            // 写入文件
-            fs.mkdirSync(contestFolderPath, { recursive: true });
-            fs.writeFileSync(filePath, content);
+            const filePath = getProblemMarkdownPath(contestFolderPath, problem.info.index);
+            writeProblemMarkdown(contestFolderPath, problem, extra);
             
             // 打开文件
             const document = await vscode.workspace.openTextDocument(filePath);

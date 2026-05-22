@@ -2,7 +2,7 @@
   "name": "nowcoderac-plus",
   "displayName": "NowCoderAC Plus",
   "description": "Solve nowcoder contest problems in VSCode fully",
-  "version": "0.3.5",
+  "version": "1.0.0",
   "icon": "resources/icon.png",
   "publisher": "Handy2233",
   "repository": {
@@ -106,6 +106,70 @@
           "name": "排名"
         }
       ]
+    },
+    "configuration": {
+      "title": "NowCoderAC Plus",
+      "properties": {
+        "nowcoderac.compiler.default": {
+          "type": "string",
+          "default": "每次询问",
+          "enum": [
+            "每次询问",
+            "C++（clang++18）",
+            "C++(g++ 13)",
+            "C(gcc 10)",
+            "Java",
+            "C",
+            "Python2",
+            "Python3",
+            "pypy2",
+            "pypy3",
+            "C#",
+            "PHP",
+            "JavaScript V8",
+            "JavaScript Node",
+            "R",
+            "Go",
+            "Ruby",
+            "Rust",
+            "Swift",
+            "ObjC",
+            "Pascal",
+            "matlab",
+            "bash",
+            "Scala",
+            "Kotlin",
+            "Groovy",
+            "TypeScript"
+          ],
+          "description": "创建代码文件或提交时默认使用的牛客编译器。设为“每次询问”时仍弹出编译器选择框。"
+        },
+        "nowcoderac.cph.autoGenerateProblem": {
+          "type": "boolean",
+          "default": true,
+          "description": "创建代码文件时自动生成 CPH .prob 测试数据。"
+        },
+        "nowcoderac.cph.reuseLastSaveLocation": {
+          "type": "boolean",
+          "default": true,
+          "description": "生成 CPH .prob 文件时复用上次确认保存的目录。首次使用会手动选择目录并要求确认；关闭后每次都手动选择目录。"
+        },
+        "nowcoderac.contest.workspaceRootPath": {
+          "type": "string",
+          "default": "",
+          "description": "创建比赛工作空间时默认打开的保存目录。选择保存位置后会自动更新为上次选择的目录。"
+        },
+        "nowcoderac.problem.openPreviewToSide": {
+          "type": "boolean",
+          "default": true,
+          "description": "打开题面时在侧边打开 Markdown 预览。关闭后只打开生成的 Markdown 文件。"
+        },
+        "nowcoderac.contest.autoDetectConfig": {
+          "type": "boolean",
+          "default": true,
+          "description": "切换到包含 nowcoderac.json 的文件时，提示打开对应比赛空间。"
+        }
+      }
     },
     "menus": {
       "view/title": [

@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import * as vscode from 'vscode';
+import { loginPromptCoordinator } from './loginPromptCoordinator';
 
 /**
  * HTTP客户端
@@ -28,7 +29,7 @@ export class HttpClient {
      * 获取身份验证Token
      */
     async getToken(): Promise<string> {
-        const session = await vscode.authentication.getSession('nowcoderac', [], { createIfNone: true });
+        const session = await loginPromptCoordinator.getSessionForRequest();
         if (!session) {
             throw new Error('未授权，请先登录NowCoder账号');
         }

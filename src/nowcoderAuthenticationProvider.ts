@@ -48,17 +48,24 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
     private readonly sessionChangeEmitter = new vscode.EventEmitter<vscode.AuthenticationProviderAuthenticationSessionsChangeEvent>();
     private readonly outputChannel = vscode.window.createOutputChannel('NowCoderAC Login');
     static readonly id = 'nowcoderac-token';
+    private static readonly accountNameKey = 'nowcoderac-account-name';
 
     onDidChangeSessions = this.sessionChangeEmitter.event;
 
     constructor(private readonly context: vscode.ExtensionContext) {}
 
     async getSessions(scopes?: string[]): Promise<vscode.AuthenticationSession[]> {
+        const session = await this.getStoredSession();
+        return session ? [session] : [];
+    }
+
+    async getStoredSession(): Promise<vscode.AuthenticationSession | undefined> {
         const token = await this.context.secrets.get(NowcoderAuthenticationProvider.id);
         if (!token) {
-            return [];
+            return undefined;
         }
-        return [this.token2Session(token)];
+        const accountName = await this.context.secrets.get(NowcoderAuthenticationProvider.accountNameKey);
+        return this.token2Session(token, accountName);
     }
 
     private async fetchCurrentUserName(token: string): Promise<string | undefined> {
@@ -936,32 +943,33 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         token = token.trim().replaceAll('\'', '').replaceAll('"', '');
         const userName = await this.fetchCurrentUserName(token);
 
-        const session: vscode.AuthenticationSession = {
-            id: Date.now().toString(),
-            accessToken: token,
-            account: {
-                label: userName ?? 'NowCoder User',
-                id: Date.now().toString()
-            },
-            scopes: []
-        };
+        const session = this.token2Session(token, userName);
 
+        await this.context.secrets.store(NowcoderAuthenticationProvider.id, token);
+        if (userName) {
+            await this.context.secrets.store(NowcoderAuthenticationProvider.accountNameKey, userName);
+        } else {
+            await this.context.secrets.delete(NowcoderAuthenticationProvider.accountNameKey);
+        }
         this.sessionChangeEmitter.fire({
             added: [session],
             removed: [],
             changed: []
         });
-
-        await this.context.secrets.store(NowcoderAuthenticationProvider.id, token);
         return session;
     }
 
     async removeSession(sessionId: string): Promise<void> {
+        await this.clearSession();
+    }
+
+    async clearSession(): Promise<void> {
         const token = await this.context.secrets.get(NowcoderAuthenticationProvider.id);
         if (!token) {
             return;
         }
         await this.context.secrets.delete(NowcoderAuthenticationProvider.id);
+        await this.context.secrets.delete(NowcoderAuthenticationProvider.accountNameKey);
         const session = this.token2Session(token);
         this.sessionChangeEmitter.fire({
             added: [],
@@ -970,12 +978,12 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         });
     }
 
-    private token2Session(token: string): vscode.AuthenticationSession {
+    private token2Session(token: string, accountName?: string): vscode.AuthenticationSession {
         return {
             id: NowcoderAuthenticationProvider.id,
             accessToken: token,
             account: {
-                label: NowcoderAuthenticationProvider.id,
+                label: accountName ?? 'NowCoder User',
                 id: NowcoderAuthenticationProvider.id
             },
             scopes: []
@@ -984,5 +992,6 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
 
     static async clearToken(context: vscode.ExtensionContext) {
         await context.secrets.delete(NowcoderAuthenticationProvider.id);
+        await context.secrets.delete(NowcoderAuthenticationProvider.accountNameKey);
     };
 }

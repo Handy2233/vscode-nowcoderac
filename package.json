@@ -27,11 +27,18 @@
       {
         "command": "nowcoderac.createContestSpace",
         "title": "创建比赛工作空间",
+        "icon": "$(add)",
         "category": "NowCoder"
       },
       {
         "command": "nowcoderac.refreshProblemList",
         "title": "刷新题目列表",
+        "icon": "$(refresh)",
+        "category": "NowCoder"
+      },
+      {
+        "command": "nowcoderac.refreshContestList",
+        "title": "刷新比赛列表",
         "icon": "$(refresh)",
         "category": "NowCoder"
       },
@@ -56,6 +63,12 @@
       {
         "command": "nowcoderac.submitSolution",
         "title": "提交解答",
+        "icon": "$(debug-start)",
+        "category": "NowCoder"
+      },
+      {
+        "command": "nowcoderac.submitCurrentFile",
+        "title": "提交当前代码文件",
         "icon": "$(debug-start)",
         "category": "NowCoder"
       },
@@ -94,6 +107,10 @@
     "views": {
       "nowcoderac-explorer": [
         {
+          "id": "nowcoderac-contests",
+          "name": "比赛列表"
+        },
+        {
           "id": "nowcoderac-problems",
           "name": "题目列表"
         },
@@ -107,8 +124,72 @@
         }
       ]
     },
+    "configuration": {
+      "title": "NowCoderAC Plus",
+      "properties": {
+        "nowcoderac.compiler.default": {
+          "type": "string",
+          "default": "每次询问",
+          "enum": [
+            "每次询问",
+            "C++（clang++18）",
+            "C++(g++ 13)",
+            "C(gcc 10)",
+            "Java",
+            "C",
+            "Python2",
+            "Python3",
+            "pypy2",
+            "pypy3",
+            "C#",
+            "PHP",
+            "JavaScript V8",
+            "JavaScript Node",
+            "R",
+            "Go",
+            "Ruby",
+            "Rust",
+            "Swift",
+            "ObjC",
+            "Pascal",
+            "matlab",
+            "bash",
+            "Scala",
+            "Kotlin",
+            "Groovy",
+            "TypeScript"
+          ],
+          "description": "创建代码文件或提交时默认使用的牛客编译器。设为“每次询问”时仍弹出编译器选择框。"
+        },
+        "nowcoderac.cph.autoGenerateProblem": {
+          "type": "boolean",
+          "default": true,
+          "description": "创建代码文件时自动生成 CPH .prob 测试数据。"
+        },
+        "nowcoderac.contest.workspaceRootPath": {
+          "type": "string",
+          "default": "",
+          "description": "创建比赛工作空间时默认打开的保存目录。选择保存位置后会自动更新为上次选择的目录。"
+        },
+        "nowcoderac.contest.autoDetectConfig": {
+          "type": "boolean",
+          "default": true,
+          "description": "切换到包含 nowcoderac.json 的文件时，提示打开对应比赛空间。"
+        }
+      }
+    },
     "menus": {
       "view/title": [
+        {
+          "command": "nowcoderac.createContestSpace",
+          "when": "view == nowcoderac-contests",
+          "group": "navigation@1"
+        },
+        {
+          "command": "nowcoderac.refreshContestList",
+          "when": "view == nowcoderac-contests",
+          "group": "navigation@2"
+        },
         {
           "command": "nowcoderac.refreshProblemList",
           "when": "view == nowcoderac-problems",
@@ -140,6 +221,13 @@
           "command": "nowcoderac.submitSolution",
           "when": "view == nowcoderac-problems",
           "group": "inline@3"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "nowcoderac.submitCurrentFile",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(cpp|c|java|py|cs|php|js|r|go|rb|rs|swift|m|pas|sh|scala|kt|groovy|ts)$/",
+          "group": "navigation"
         }
       ]
     }

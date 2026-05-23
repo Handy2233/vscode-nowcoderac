@@ -4,6 +4,62 @@ import { nowcoderService } from './nowcoderService';
 import { Problem, SubmissionStatus, NowcoderCompiler, ProblemInfo, ProblemExtra, SubmissionListItem, RealtimeRank, NowcoderConfig, ContestInfo } from '../models/models';
 import { CphService } from './cphService';
 import { IContestDataProvider } from './contestDataProvider.interface';
+import { getProblemExtraSignature, getProblemInfoSignature } from '../utils/problemSignature';
+
+function hasSubmitMetadata(extra: ProblemExtra | undefined): extra is ProblemExtra {
+    return !!extra?.questionId && !!extra.tagId && !!extra.subTagId && !!extra.doneQuestionId;
+}
+
+export interface ContestProblemUpdate {
+    /** 当前缓存中的题目对象，extra 已指向最新题面。 */
+    problem: Problem;
+    /** 更新前的题面详情，用于对比和兼容旧 CPH 文件。 */
+    previousExtra: ProblemExtra;
+    /** 更新后的题面详情。 */
+    nextExtra: ProblemExtra;
+    /** 题面正文、样例或提交参数是否变化。 */
+    extraChanged: boolean;
+    /** 题目标题、分值等基础信息是否变化。 */
+    infoChanged: boolean;
+}
+
+export interface ContestProblemUpdateCheckResult {
+    /** 本轮检测到变化的题目列表。 */
+    updatedProblems: ContestProblemUpdate[];
+    /** 首次补齐 extra 缓存但不向用户提示变化的题目列表。 */
+    initializedProblems: Problem[];
+    /** 拉取失败的题目和错误信息。 */
+    failedProblems: { index: string; error: string }[];
+}
+
+/**
+ * 深拷贝题面详情，避免后续写回缓存时污染变化前的对比基准。
+ *
+ * @param extra 需要复制的题面详情。
+ * @returns 与传入对象内容相同、引用独立的题面详情。
+ */
+function cloneProblemExtra(extra: ProblemExtra): ProblemExtra {
+    return JSON.parse(JSON.stringify(extra)) as ProblemExtra;
+}
+
+/**
+ * 使用固定并发数执行异步任务。
+ *
+ * @param items 待处理项目列表。
+ * @param limit 最大并发数。
+ * @param task 单个项目的异步处理函数。
+ * @returns 所有任务完成后 resolve。
+ */
+async function runWithConcurrency<T>(items: T[], limit: number, task: (item: T) => Promise<void>): Promise<void> {
+    let nextIndex = 0;
+    const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        while (nextIndex < items.length) {
+            const item = items[nextIndex++];
+            await task(item);
+        }
+    });
+    await Promise.all(workers);
+}
 
 /**
  * 管理NowCoder比赛、题目和提交
@@ -151,6 +207,115 @@ export class ContestService implements IContestDataProvider {
     }
 
     /**
+     * 检查当前比赛所有题目的题面和基础信息是否发生变化。
+     *
+     * 该方法会拉取最新题目列表和每道题的详情，只有题目信息或 ProblemExtra 签名变化时
+     * 才记录为 updatedProblems；首次补齐缺失 extra 的题目会放入 initializedProblems。
+     *
+     * @returns 本轮检查结果，包含发生变化、首次初始化以及拉取失败的题目。
+     */
+    async checkProblemUpdates(): Promise<ContestProblemUpdateCheckResult> {
+        const problemListResult = await nowcoderService.getProblemList(this.config.contestId);
+        if (!problemListResult.success || !problemListResult.data) {
+            throw new Error(`获取题目列表失败: ${problemListResult.error}`);
+        }
+
+        const previousProblems = this.config.problems ?? [];
+        const previousByIndex = new Map(previousProblems.map(problem => [problem.info.index, problem]));
+        const changeRecords = new Map<string, ContestProblemUpdate>();
+        const initializedProblems: Problem[] = [];
+        const failedProblems: { index: string; error: string }[] = [];
+        let dirty = false;
+
+        const latestProblems = problemListResult.data.data.map((info: ProblemInfo) => {
+            const previous = previousByIndex.get(info.index);
+            const previousInfoChanged = previous ? getProblemInfoSignature(previous.info) !== getProblemInfoSignature(info) : false;
+            const problem: Problem = {
+                info: previousInfoChanged || !previous ? info : previous.info,
+                extra: previous?.extra
+            };
+
+            if (previous && previousInfoChanged) {
+                dirty = true;
+                if (previous.extra) {
+                    changeRecords.set(info.index, {
+                        problem,
+                        previousExtra: cloneProblemExtra(previous.extra),
+                        nextExtra: previous.extra,
+                        extraChanged: false,
+                        infoChanged: true
+                    });
+                }
+            }
+
+            if (!previous) {
+                dirty = true;
+            }
+
+            return problem;
+        });
+
+        if (latestProblems.length !== previousProblems.length ||
+            latestProblems.some((problem, index) => problem.info.index !== previousProblems[index]?.info.index)) {
+            dirty = true;
+        }
+
+        this.config.problems = latestProblems;
+
+        await runWithConcurrency(latestProblems, 2, async (problem) => {
+            try {
+                const previousExtra = problem.extra ? cloneProblemExtra(problem.extra) : undefined;
+                const extraResult = await nowcoderService.getProblemExtra(this.config.contestId, problem.info.index);
+                if (!extraResult.success || !extraResult.data) {
+                    failedProblems.push({ index: problem.info.index, error: extraResult.error || '未知错误' });
+                    return;
+                }
+
+                const nextExtra = extraResult.data;
+                if (!previousExtra) {
+                    problem.extra = nextExtra;
+                    initializedProblems.push(problem);
+                    dirty = true;
+                    return;
+                }
+
+                const extraChanged = getProblemExtraSignature(previousExtra) !== getProblemExtraSignature(nextExtra);
+                if (extraChanged) {
+                    problem.extra = nextExtra;
+                    dirty = true;
+                }
+
+                const existingRecord = changeRecords.get(problem.info.index);
+                if (extraChanged || existingRecord?.infoChanged) {
+                    changeRecords.set(problem.info.index, {
+                        problem,
+                        previousExtra: existingRecord?.previousExtra ?? previousExtra,
+                        nextExtra,
+                        extraChanged,
+                        infoChanged: existingRecord?.infoChanged ?? false
+                    });
+                }
+            } catch (error) {
+                failedProblems.push({
+                    index: problem.info.index,
+                    error: error instanceof Error ? error.message : String(error)
+                });
+            }
+        });
+
+        if (dirty) {
+            this.saveConfig();
+            this._onProblemsUpdated.fire(this.config.problems);
+        }
+
+        return {
+            updatedProblems: [...changeRecords.values()],
+            initializedProblems,
+            failedProblems
+        };
+    }
+
+    /**
      * 提交解答
      * @param code 代码
      * @param problemIndex 题目索引
@@ -162,9 +327,11 @@ export class ContestService implements IContestDataProvider {
         if (!problem) {
             throw new Error(`题目"${problemIndex}"不存在`);
         }
-        problem.extra ??= await this.getProblemExtra(problemIndex) ?? undefined;
-        if (!problem.extra) {
-            throw new Error(`获取题目"${problemIndex}"详情失败`);
+        if (!hasSubmitMetadata(problem.extra)) {
+            problem.extra = await this.getProblemExtra(problemIndex, true) ?? undefined;
+        }
+        if (!hasSubmitMetadata(problem.extra)) {
+            throw new Error(`题目"${problemIndex}"提交参数解析失败，请重新打开题目或刷新题目内容`);
         }
 
         const responseResult = await nowcoderService.submitSolution(

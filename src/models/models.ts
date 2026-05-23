@@ -104,6 +104,41 @@ export interface ContestInfo {
 }
 
 /**
+ * 牛客竞赛当前登录用户信息
+ */
+export interface AcmCurrentUser {
+    uid: number;
+    name: string;
+}
+
+/**
+ * 竞赛消息轮询接口响应
+ */
+export interface ContestMessagePing {
+    stopPing: boolean;
+    newMsgCount: number;
+}
+
+/**
+ * 竞赛消息列表接口响应
+ */
+export interface ContestMessageList {
+    totalPage: number;
+    messages: ContestMessage[];
+}
+
+/**
+ * 竞赛消息。type === 3 表示比赛公告。
+ */
+export interface ContestMessage {
+    sender: number;
+    id: number;
+    isAcmManager: boolean;
+    type: number | string;
+    content: string;
+}
+
+/**
  * 比赛题目列表
  */
 export interface ContestProblemList {
@@ -339,12 +374,27 @@ export interface CphProb {
     srcPath: string;
     group: string;
     local: boolean;
+    nowcoderac?: CphProbNowcoderMetadata;
 }
 
 export interface CphTest {
     id: number;
     input: string;
     output: string;
+}
+
+/**
+ * NowcoderAC 写入 CPH prob 的官方样例同步元数据。
+ */
+export interface CphProbNowcoderMetadata {
+    /** 题目编号，例如 A、B、C。 */
+    problemIndex: string;
+    /** 上次同步时的完整题面签名。 */
+    problemExtraSignature: string;
+    /** 上次同步时每个官方样例的输入输出签名。 */
+    sampleSignatures: string[];
+    /** 上次同步时间戳，单位为毫秒。 */
+    updatedAt: number;
 }
 
 export enum CphSupportedLanguage {

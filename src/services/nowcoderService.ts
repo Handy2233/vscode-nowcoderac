@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { httpClient } from './httpClient';
 import { parseContestPage, parseProblemPage } from '../utils/htmlParser';
-import { SubmissionResponse, SubmissionStatus, NowcoderCompiler, COMPILER_CONFIG, ProblemExtra, ContestProblemList, Response, SubmissionList, ApiResult, RealtimeRank, ContestInfo } from '../models/models';
+import { SubmissionResponse, SubmissionStatus, NowcoderCompiler, COMPILER_CONFIG, ProblemExtra, ContestProblemList, Response, SubmissionList, ApiResult, RealtimeRank, ContestInfo, AcmCurrentUser, ContestMessageList, ContestMessagePing } from '../models/models';
 
 /**
  * NowCoder服务，封装与NowCoder平台的API交互
@@ -12,6 +12,33 @@ export class NowcoderService {
     private tokenExpired<T>(): ApiResult<T> {
         vscode.commands.executeCommand('nowcoderac.logout');
         return ApiResult.failure('登录信息已过期，请重新登录');
+    }
+
+    /**
+     * 获取当前登录的牛客竞赛用户。
+     */
+    async getCurrentAcmUser(): Promise<ApiResult<AcmCurrentUser>> {
+        try {
+            const url = `${NowcoderService.BASE_URL}/`;
+            const { status, html } = await httpClient.getHtml(url);
+            if (status === 301) {
+                return this.tokenExpired();
+            }
+
+            const uid = html.match(/ownerId:\s*['"](\d+)['"]/)?.[1];
+            const name = html.match(/ownerName:\s*['"]([^'"]+)['"]/)?.[1];
+            if (!uid) {
+                return ApiResult.failure('解析当前牛客用户失败，请确认已登录');
+            }
+
+            return ApiResult.success({
+                uid: Number(uid),
+                name: name || 'NowCoder User'
+            });
+        } catch (error) {
+            console.error('Error fetching current ACM user:', error);
+            return ApiResult.failure('网络错误: ' + (error instanceof Error ? error.message : String(error)));
+        }
     }
 
     /**
@@ -34,6 +61,30 @@ export class NowcoderService {
             }
         } catch (error) {
             console.error(`Error fetching contest info for ${contestId}:`, error);
+            return ApiResult.failure('网络错误: ' + (error instanceof Error ? error.message : String(error)));
+        }
+    }
+
+    /**
+     * 获取比赛标题
+     * @param contestId 比赛ID
+     * @returns 比赛标题
+     */
+    async getContestTitle(contestId: number): Promise<ApiResult<string>> {
+        try {
+            const url = `${NowcoderService.BASE_URL}/acm/contest/contest-info?id=${contestId}`;
+            const response = await httpClient.get<Response<Partial<ContestInfo>>>(url);
+            if (response && response.code === 0 && response.data) {
+                const title = response.data.name || response.data.competitionName_var;
+                if (title) {
+                    return ApiResult.success(title);
+                }
+                return ApiResult.failure('比赛标题为空');
+            }
+            console.error('Failed to get contest title:', response?.msg);
+            return ApiResult.failure(response?.msg || '未知错误');
+        } catch (error) {
+            console.error(`Error fetching contest title for ${contestId}:`, error);
             return ApiResult.failure('网络错误: ' + (error instanceof Error ? error.message : String(error)));
         }
     }
@@ -117,6 +168,12 @@ export class NowcoderService {
             if (response.code === 1 && response.msg === '请先登录') {
                 return this.tokenExpired();
             }
+            if (response.code !== 0) {
+                return ApiResult.failure(response.msg || `提交失败，错误码: ${response.code}`);
+            }
+            if (!Number.isFinite(response.data)) {
+                return ApiResult.failure('提交失败：牛客未返回提交ID');
+            }
             return ApiResult.success(response);
         } catch (error) {
             console.error(`Error submitting solution for ${questionId}:`, error);
@@ -178,6 +235,46 @@ export class NowcoderService {
             return ApiResult.failure(response?.msg || '未知错误');
         } catch (error) {
             console.error('Error fetching realtime rank:', error);
+            return ApiResult.failure('网络错误: ' + (error instanceof Error ? error.message : String(error)));
+        }
+    }
+
+    async pingContestMessages(contestId: number, uid: number, previousMessageId: number): Promise<ApiResult<ContestMessagePing>> {
+        try {
+            const url = `${NowcoderService.BASE_URL}/acm/contest/ping-to-nc`;
+            const response = await httpClient.postForm<Response<ContestMessagePing>>(url, {
+                contestId,
+                uid,
+                previousMessageId
+            });
+            if (response && response.code === 0 && response.data) {
+                return ApiResult.success(response.data);
+            }
+            if (response?.code === 999) {
+                return this.tokenExpired();
+            }
+            console.error('Failed to ping contest messages:', response?.msg);
+            return ApiResult.failure(response?.msg || '轮询竞赛消息失败');
+        } catch (error) {
+            console.error(`Error pinging contest messages for ${contestId}/${uid}:`, error);
+            return ApiResult.failure('网络错误: ' + (error instanceof Error ? error.message : String(error)));
+        }
+    }
+
+    async getContestMessages(contestId: number, uid: number, previousMessageId: number = -1, page: number = 1, pageSize: number = 50): Promise<ApiResult<ContestMessageList>> {
+        try {
+            const url = `${NowcoderService.BASE_URL}/acm/contest/messages?contestId=${contestId}&uid=${uid}&previousMessageId=${previousMessageId}&page=${page}&pageSize=${pageSize}`;
+            const response = await httpClient.get<Response<ContestMessageList>>(url);
+            if (response && response.code === 0 && response.data) {
+                return ApiResult.success(response.data);
+            }
+            if (response?.code === 999) {
+                return this.tokenExpired();
+            }
+            console.error('Failed to get contest messages:', response?.msg);
+            return ApiResult.failure(response?.msg || '获取竞赛消息失败');
+        } catch (error) {
+            console.error(`Error fetching contest messages for ${contestId}/${uid}:`, error);
             return ApiResult.failure('网络错误: ' + (error instanceof Error ? error.message : String(error)));
         }
     }

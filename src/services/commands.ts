@@ -16,6 +16,7 @@ import {
 import { getProblemMarkdownPath, writeProblemMarkdown } from '../utils/problemMarkdown';
 import { ContestRecord, ContestRegistryService } from './contestRegistryService';
 import { nowcoderService } from './nowcoderService';
+import { loginPromptCoordinator } from './loginPromptCoordinator';
 
 async function ensureInContest(callback: (currentContest: ContestService) => Promise<void>) {
     const contestManager = ContestSpaceManager.getInstance().getContestService();
@@ -440,28 +441,12 @@ export const refreshRealtimeRank = async () => {
     });
 };
 
-function isCancellationError(error: unknown): boolean {
-    if (error instanceof vscode.CancellationError) {
-        return true;
-    }
-    if (!(error instanceof Error)) {
-        return false;
-    }
-    return error.name === 'Canceled' || error.message === 'Canceled';
-}
-
-export const login = async (context: vscode.ExtensionContext) => {
-    await NowcoderAuthenticationProvider.clearToken(context);
-    try {
-        await vscode.authentication.getSession('nowcoderac', [], { createIfNone: true });
-    } catch (error) {
-        if (isCancellationError(error)) {
-            return;
-        }
-        throw error;
-    }
+export const login = async (authProvider: NowcoderAuthenticationProvider) => {
+    await authProvider.clearSession();
+    await loginPromptCoordinator.promptForManualLogin();
 };
 
-export const logout = async (context: vscode.ExtensionContext) => {
-    await NowcoderAuthenticationProvider.clearToken(context);
+export const logout = async (authProvider: NowcoderAuthenticationProvider) => {
+    await authProvider.clearSession();
+    loginPromptCoordinator.reset();
 };

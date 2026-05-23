@@ -12,6 +12,24 @@ import { ContestAnnouncementWatcher } from './services/contestAnnouncementWatche
 import { ContestProblemUpdateWatcher } from './services/contestProblemUpdateWatcher';
 import { ContestRegistryService } from './services/contestRegistryService';
 import { nowcoderService } from './services/nowcoderService';
+import { loginPromptCoordinator } from './services/loginPromptCoordinator';
+
+function registerLoginPromptOnPluginOpen(context: vscode.ExtensionContext, ...treeViews: vscode.TreeView<unknown>[]): void {
+    const promptIfVisible = (treeView: vscode.TreeView<unknown>) => {
+        if (treeView.visible) {
+            void loginPromptCoordinator.promptAfterPluginOpen();
+        }
+    };
+
+    for (const treeView of treeViews) {
+        context.subscriptions.push(treeView.onDidChangeVisibility(event => {
+            if (event.visible) {
+                void loginPromptCoordinator.promptAfterPluginOpen();
+            }
+        }));
+        promptIfVisible(treeView);
+    }
+}
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -79,6 +97,13 @@ export function activate(context: vscode.ExtensionContext) {
         treeDataProvider: rankingsProvider
     });
     context.subscriptions.push(rankingsTreeView);
+    registerLoginPromptOnPluginOpen(
+        context,
+        contestsTreeView,
+        problemsTreeView,
+        submissionsTreeView,
+        rankingsTreeView
+    );
     
     // 注册创建比赛工作空间命令
     const createWorkspaceDisposable = vscode.commands.registerCommand('nowcoderac.createContestSpace', () => createContestSpace(contestRegistry));
@@ -121,11 +146,11 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(refreshRankingsDisposable);
 
     // 登录命令
-    const loginDisposable = vscode.commands.registerCommand('nowcoderac.login', () => login(context));
+    const loginDisposable = vscode.commands.registerCommand('nowcoderac.login', () => login(authProvider));
     context.subscriptions.push(loginDisposable);
 
     // 登出命令
-    const logoutDisposable = vscode.commands.registerCommand('nowcoderac.logout', () => logout(context));
+    const logoutDisposable = vscode.commands.registerCommand('nowcoderac.logout', () => logout(authProvider));
     context.subscriptions.push(logoutDisposable);
 }
 

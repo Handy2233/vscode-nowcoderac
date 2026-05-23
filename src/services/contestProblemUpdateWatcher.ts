@@ -2,7 +2,6 @@ import * as vscode from 'vscode';
 import { ContestService } from './contestService';
 import { ContestSpaceManager } from './contestSpaceManager';
 import { updateExistingProblemMarkdown } from '../utils/problemMarkdown';
-import { getLastCphSaveLocation, getReuseLastCphSaveLocationPref } from '../utils/perferenceHelper';
 
 const POLL_INTERVAL_MS = 10000;
 const FAILURE_BACKOFF_MS = 30000;
@@ -27,7 +26,7 @@ export class ContestProblemUpdateWatcher implements vscode.Disposable {
      *
      * @param contestSpaceManager 当前比赛工作区管理器，用于在切换比赛时重新绑定轮询目标。
      */
-    constructor(private readonly context: vscode.ExtensionContext, contestSpaceManager: ContestSpaceManager) {
+    constructor(contestSpaceManager: ContestSpaceManager) {
         this.contestSpaceChangedDisposable = contestSpaceManager.onContestSpaceChanged((contestService) => {
             this.rebind(contestService);
         });
@@ -118,9 +117,6 @@ export class ContestProblemUpdateWatcher implements vscode.Disposable {
             const cphUpdatedProblems = new Set<string>();
             const cphSkippedProblems = new Set<string>();
             const contestFolderPath = contestService.getContestFolderPath();
-            const cphSaveLocation = getReuseLastCphSaveLocationPref()
-                ? getLastCphSaveLocation(this.context)
-                : undefined;
 
             for (const update of result.updatedProblems) {
                 if (updateExistingProblemMarkdown(contestFolderPath, update.problem, update.nextExtra)) {
@@ -132,8 +128,7 @@ export class ContestProblemUpdateWatcher implements vscode.Disposable {
                     const syncResult = contestService.cphService.syncProblemSampleTests(
                         sourceFileName,
                         update.problem,
-                        update.previousExtra,
-                        cphSaveLocation
+                        update.previousExtra
                     );
                     if (syncResult.updated) {
                         cphUpdatedProblems.add(update.problem.info.index);

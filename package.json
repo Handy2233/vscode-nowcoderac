@@ -67,6 +67,12 @@
         "category": "NowCoder"
       },
       {
+        "command": "nowcoderac.submitCurrentFile",
+        "title": "提交当前代码文件",
+        "icon": "$(debug-start)",
+        "category": "NowCoder"
+      },
+      {
         "command": "nowcoderac.refreshSubmissionList",
         "title": "刷新提交列表",
         "icon": "$(refresh)",
@@ -160,20 +166,10 @@
           "default": true,
           "description": "创建代码文件时自动生成 CPH .prob 测试数据。"
         },
-        "nowcoderac.cph.reuseLastSaveLocation": {
-          "type": "boolean",
-          "default": true,
-          "description": "生成 CPH .prob 文件时复用上次确认保存的目录。首次使用会手动选择目录并要求确认；关闭后每次都手动选择目录。"
-        },
         "nowcoderac.contest.workspaceRootPath": {
           "type": "string",
           "default": "",
           "description": "创建比赛工作空间时默认打开的保存目录。选择保存位置后会自动更新为上次选择的目录。"
-        },
-        "nowcoderac.problem.openPreviewToSide": {
-          "type": "boolean",
-          "default": true,
-          "description": "打开题面时在侧边打开 Markdown 预览。关闭后只打开生成的 Markdown 文件。"
         },
         "nowcoderac.contest.autoDetectConfig": {
           "type": "boolean",
@@ -225,6 +221,13 @@
           "command": "nowcoderac.submitSolution",
           "when": "view == nowcoderac-problems",
           "group": "inline@3"
+        }
+      ],
+      "editor/title": [
+        {
+          "command": "nowcoderac.submitCurrentFile",
+          "when": "resourceScheme == file && resourceExtname =~ /\\.(cpp|c|java|py|cs|php|js|r|go|rb|rs|swift|m|pas|sh|scala|kt|groovy|ts)$/",
+          "group": "navigation"
         }
       ]
     }

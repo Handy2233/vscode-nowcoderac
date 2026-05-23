@@ -11,10 +11,6 @@ import { NowcoderAuthenticationProvider } from '../nowcoderAuthenticationProvide
 import {
     getAutoGenerateCphProblemPref,
     getContestWorkspaceRootPathPref,
-    getLastCphSaveLocation,
-    getOpenProblemPreviewToSidePref,
-    getReuseLastCphSaveLocationPref,
-    updateLastCphSaveLocation,
     updateContestWorkspaceRootPathPref
 } from '../utils/perferenceHelper';
 import { getProblemMarkdownPath, writeProblemMarkdown } from '../utils/problemMarkdown';
@@ -30,42 +26,8 @@ async function ensureInContest(callback: (currentContest: ContestService) => Pro
     await callback(contestManager);
 }
 
-async function selectCphSaveLocation(context: vscode.ExtensionContext, contestFolderPath: string): Promise<string | undefined> {
-    const reuseLastSaveLocation = getReuseLastCphSaveLocationPref();
-    const lastSaveLocation = getLastCphSaveLocation(context);
-    if (reuseLastSaveLocation && lastSaveLocation) {
-        return lastSaveLocation;
-    }
-
-    const cphFolderUri = await vscode.window.showOpenDialog({
-        canSelectFiles: false,
-        canSelectFolders: true,
-        canSelectMany: false,
-        defaultUri: vscode.Uri.file(contestFolderPath),
-        openLabel: '选择 CPH 测试数据保存位置'
-    });
-
-    if (!cphFolderUri || cphFolderUri.length === 0) {
-        return undefined;
-    }
-
-    const selectedPath = cphFolderUri[0].fsPath;
-    if (!reuseLastSaveLocation) {
-        return selectedPath;
-    }
-
-    const confirm = await vscode.window.showInformationMessage(
-        `是否将 ${selectedPath} 保存为后续 CPH 测试数据目录？`,
-        { modal: true },
-        '保存并使用',
-        '仅本次使用'
-    );
-
-    if (confirm === '保存并使用') {
-        await updateLastCphSaveLocation(context, selectedPath);
-    }
-
-    return selectedPath;
+function getProblemSourceFileNames(currentContest: ContestService, problemIndex: string): string[] {
+    return currentContest.cphService.getExistingSourceFileNames(problemIndex);
 }
 
 function parseContestId(input: string | undefined): number | undefined {
@@ -87,7 +49,7 @@ function parseContestId(input: string | undefined): number | undefined {
 }
 
 async function selectProblemSourceFile(currentContest: ContestService, problemIndex: string): Promise<string | undefined> {
-    const sourceFileNames = currentContest.cphService.getExistingSourceFileNames(problemIndex);
+    const sourceFileNames = getProblemSourceFileNames(currentContest, problemIndex);
     if (sourceFileNames.length === 0) {
         vscode.window.showErrorMessage(`未找到题目 ${problemIndex} 对应的代码文件，请先创建代码文件。`);
         return undefined;
@@ -108,6 +70,156 @@ async function openSourceDocument(filePath: string): Promise<vscode.TextDocument
         return document.uri.scheme === 'file' && fs.existsSync(document.uri.fsPath) && fs.realpathSync(document.uri.fsPath) === realPath;
     });
     return openedDocument ?? vscode.workspace.openTextDocument(vscode.Uri.file(filePath));
+}
+
+function isPathInContestRoot(currentContest: ContestService, filePath: string): boolean {
+    const contestFolderPath = currentContest.getContestFolderPath();
+    return fs.existsSync(filePath) && path.relative(contestFolderPath, path.dirname(filePath)) === '';
+}
+
+async function getProblemBySourceFilePath(currentContest: ContestService, filePath: string): Promise<Problem | undefined> {
+    if (!isPathInContestRoot(currentContest, filePath)) {
+        return undefined;
+    }
+
+    const fileName = path.basename(filePath);
+    const problems = await currentContest.getProblems();
+    return [...problems]
+        .sort((a, b) => b.info.index.length - a.info.index.length)
+        .find(problem => getProblemSourceFileNames(currentContest, problem.info.index).includes(fileName));
+}
+
+function findActiveProblemSourceFile(currentContest: ContestService, sourceFileNames: string[]): string | undefined {
+    const activeFilePath = vscode.window.activeTextEditor?.document.uri.fsPath;
+    if (!activeFilePath) {
+        return undefined;
+    }
+
+    if (!isPathInContestRoot(currentContest, activeFilePath)) {
+        return undefined;
+    }
+
+    const activeFileName = path.basename(activeFilePath);
+    return sourceFileNames.includes(activeFileName) ? activeFileName : undefined;
+}
+
+function getProblemSourceFileForOpen(currentContest: ContestService, problemIndex: string): string | undefined {
+    const sourceFileNames = getProblemSourceFileNames(currentContest, problemIndex);
+    if (sourceFileNames.length === 0) {
+        return undefined;
+    }
+
+    return findActiveProblemSourceFile(currentContest, sourceFileNames) ?? sourceFileNames[0];
+}
+
+async function createProblemSourceFile(
+    currentContest: ContestService,
+    problem: Problem,
+    generateCphProb: boolean = true
+): Promise<string | undefined> {
+    const compiler = await UserInteractiveHelper.askCompiler();
+    if (!compiler) {
+        return undefined;
+    }
+
+    const contestFolderPath = currentContest.getContestFolderPath();
+    const compilerInfo = COMPILER_CONFIG[compiler];
+    const fileName = `${problem.info.index}.${compilerInfo.ext}`;
+    const filePath = path.join(contestFolderPath, fileName);
+    const compilerMarkText = COMPILER_CONFIG[compiler].commentToken + ' Nowcoder Compiler: ' + COMPILER_CONFIG[compiler].name + '\n';
+
+    fs.mkdirSync(contestFolderPath, { recursive: true });
+    if (!fs.existsSync(filePath)) {
+        fs.writeFileSync(filePath, compilerMarkText, 'utf-8');
+    }
+
+    if (generateCphProb && getAutoGenerateCphProblemPref()) {
+        console.info('Creating prob file...');
+        try {
+            const cphService = currentContest.cphService;
+            const existingProb = cphService.readExistingProb(fileName);
+            if (!existingProb || !existingProb.tests || existingProb.tests.length === 0) {
+                if (!problem.extra) {
+                    problem.extra = await currentContest.getProblemExtra(problem.info.index);
+                }
+
+                const prob = cphService.createProb(fileName, problem);
+                if (prob) {
+                    cphService.saveProb(fileName, prob);
+                } else {
+                    console.error('Failed to create prob file');
+                }
+            }
+        } catch (error) {
+            console.error('Failed to create prob file:', error);
+            vscode.window.showWarningMessage(`生成 CPH 测试数据失败: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    return fileName;
+}
+
+async function getOrCreateProblemSourceFile(
+    currentContest: ContestService,
+    problem: Problem
+): Promise<string | undefined> {
+    return getProblemSourceFileForOpen(currentContest, problem.info.index)
+        ?? await createProblemSourceFile(currentContest, problem);
+}
+
+async function openProblemSourceFile(
+    currentContest: ContestService,
+    problem: Problem,
+    viewColumn: vscode.ViewColumn
+): Promise<boolean> {
+    const sourceFileName = await getOrCreateProblemSourceFile(currentContest, problem);
+    if (!sourceFileName) {
+        return false;
+    }
+
+    const filePath = path.join(currentContest.getContestFolderPath(), sourceFileName);
+    const document = await openSourceDocument(filePath);
+    await vscode.window.showTextDocument(document, {
+        viewColumn,
+        preview: false,
+        preserveFocus: false
+    });
+    return true;
+}
+
+async function openProblemPreviewToSide(uri: vscode.Uri): Promise<void> {
+    await vscode.commands.executeCommand('markdown.showPreviewToSide', uri);
+}
+
+async function submitProblemSourceFile(currentContest: ContestService, problem: Problem, filePath: string): Promise<void> {
+    const sourceFileName = path.basename(filePath);
+    const document = await openSourceDocument(filePath);
+    const code = document.getText();
+    if (!code) {
+        vscode.window.showErrorMessage(`代码文件 ${sourceFileName} 为空。`);
+        return;
+    }
+
+    const compiler = CodeHelper.tryParseComplierInCode(code, document.languageId) ?? await UserInteractiveHelper.askCompiler();
+    if (!compiler) {
+        return;
+    }
+
+    const submissionId = await currentContest.submitSolution(code, problem.info.index, compiler);
+    await UserInteractiveHelper.showJudgementProgress(submissionId, problem, status => {
+        return currentContest.confirmSubmissionStatus(status);
+    });
+    await currentContest.getSubmissions(true);
+    await currentContest.getRealtimeRank(true);
+}
+
+function getSubmitFilePath(resource?: vscode.Uri): string | undefined {
+    if (resource?.scheme === 'file') {
+        return resource.fsPath;
+    }
+
+    const activeDocument = vscode.window.activeTextEditor?.document;
+    return activeDocument?.uri.scheme === 'file' ? activeDocument.uri.fsPath : undefined;
 }
 
 export const createContestSpace = async (contestRegistry?: ContestRegistryService) => {
@@ -245,67 +357,25 @@ export const openProblem = async (problemItem: ProblemItem | undefined): Promise
             const contestFolderPath = currentContest.getContestFolderPath();
             const filePath = getProblemMarkdownPath(contestFolderPath, problem.info.index);
             writeProblemMarkdown(contestFolderPath, problem, extra);
-            
-            const document = await vscode.workspace.openTextDocument(filePath);
-            if (getOpenProblemPreviewToSidePref()) {
-                vscode.commands.executeCommand('markdown.showPreviewToSide', document.uri);
-            } else {
-                await vscode.window.showTextDocument(document, { preview: false });
-            }
+            await openProblemSourceFile(currentContest, problem, vscode.ViewColumn.One);
+
+            await openProblemPreviewToSide(vscode.Uri.file(filePath));
         });
     });
 };
 
-export const createCodeFile = async (context: vscode.ExtensionContext, problemItem: ProblemItem | undefined, generateCphProb: boolean = true): Promise<void> => {
+export const createCodeFile = async (problemItem: ProblemItem | undefined, generateCphProb: boolean = true): Promise<void> => {
     if (!problemItem) {
         return;
     }
     const problem = problemItem.problem;
     ensureInContest(async (currentContest) => {
-        const compiler = await UserInteractiveHelper.askCompiler();
-        if (!compiler) {
+        const fileName = await createProblemSourceFile(currentContest, problem, generateCphProb);
+        if (!fileName) {
             return;
         }
-        
-        const contestFolderPath = currentContest.getContestFolderPath();
-        const compilerInfo = COMPILER_CONFIG[compiler];
-        const fileName = `${problem.info.index}.${compilerInfo.ext}`;
-        const filePath = path.join(contestFolderPath, fileName);
-        const compilerMarkText = COMPILER_CONFIG[compiler].commentToken + ' Nowcoder Compiler: ' + COMPILER_CONFIG[compiler].name + '\n';
-        
-        fs.mkdirSync(contestFolderPath, { recursive: true });
-        if (!fs.existsSync(filePath)) {
-            fs.writeFileSync(filePath, compilerMarkText, 'utf-8');
-        }
 
-        if (generateCphProb && getAutoGenerateCphProblemPref()) {
-            console.info('Creating prob file...');
-            try {
-                const cphSaveLocation = await selectCphSaveLocation(context, contestFolderPath);
-                if (!cphSaveLocation) {
-                    vscode.window.showWarningMessage('未选择 CPH 测试数据保存位置，已跳过生成 .prob 文件');
-                } else {
-                    const cphService = currentContest.cphService;
-                    const existingProb = cphService.readExistingProb(fileName, cphSaveLocation);
-                    if (!existingProb || !existingProb.tests || existingProb.tests.length === 0) {
-                        if (!problem.extra) {
-                            problem.extra = await currentContest.getProblemExtra(problem.info.index);
-                        }
-
-                        const prob = cphService.createProb(fileName, problem);
-                        if (prob) {
-                            cphService.saveProb(fileName, prob, cphSaveLocation);
-                        } else {
-                            console.error('Failed to create prob file');
-                        }
-                    }
-                }
-            } catch (error) {
-                console.error('Failed to create prob file:', error);
-                vscode.window.showWarningMessage(`生成 CPH 测试数据失败: ${error instanceof Error ? error.message : String(error)}`);
-            }
-        }
-
+        const filePath = path.join(currentContest.getContestFolderPath(), fileName);
         await vscode.window.showTextDocument(vscode.Uri.file(filePath), {
             preview: false
         });
@@ -324,24 +394,25 @@ export const submitSolution = async (problemItem: ProblemItem | undefined): Prom
         }
 
         const filePath = path.join(currentContest.getContestFolderPath(), sourceFileName);
-        const document = await openSourceDocument(filePath);
-        const code = document.getText();
-        if (!code) {
-            vscode.window.showErrorMessage(`代码文件 ${sourceFileName} 为空。`);
+        await submitProblemSourceFile(currentContest, problem, filePath);
+    });
+};
+
+export const submitCurrentFile = async (resource?: vscode.Uri): Promise<void> => {
+    const filePath = getSubmitFilePath(resource);
+    if (!filePath) {
+        vscode.window.showErrorMessage('当前没有可提交的代码文件。');
+        return;
+    }
+
+    ensureInContest(async (currentContest) => {
+        const problem = await getProblemBySourceFilePath(currentContest, filePath);
+        if (!problem) {
+            vscode.window.showErrorMessage('当前文件不是比赛目录下可识别的题目代码文件。');
             return;
         }
 
-        const compiler = CodeHelper.tryParseComplierInCode(code, document.languageId) ?? await UserInteractiveHelper.askCompiler();
-        if (!compiler) {
-            return;
-        }
-        
-        const submissionId = await currentContest.submitSolution(code, problem.info.index, compiler);
-        await UserInteractiveHelper.showJudgementProgress(submissionId, problem, status => {
-            return currentContest.confirmSubmissionStatus(status);
-        });
-        await currentContest.getSubmissions(true);  // 刷新提交记录
-        await currentContest.getRealtimeRank(true);  // 刷新实时排行榜
+        await submitProblemSourceFile(currentContest, problem, filePath);
     });
 };
 

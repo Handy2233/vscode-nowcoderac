@@ -5,7 +5,7 @@ import { SubmissionsProvider } from './views/submissionsProvider';
 import { RankingsProvider } from './views/rankingsProvider';
 import { ContestsProvider } from './views/contestsProvider';
 import { ContestSpaceManager } from './services/contestSpaceManager';
-import { createCodeFile, openProblem, createContestSpace, refreshProblemList, submitSolution, refreshSubmissionList, refreshRealtimeRank, login, logout, openContestFromList, refreshContestList } from './services/commands';
+import { createCodeFile, openProblem, createContestSpace, refreshProblemList, submitSolution, submitCurrentFile, refreshSubmissionList, refreshRealtimeRank, login, logout, openContestFromList, refreshContestList } from './services/commands';
 import { ContestServiceEventWrapper } from './utils/contestServiceEventWrapper';
 import { ContestCountdownTimer } from './utils/contestCountdownTimer';
 import { ContestAnnouncementWatcher } from './services/contestAnnouncementWatcher';
@@ -53,7 +53,7 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(announcementWatcher);
 
     // 初始化比赛题面和 CPH 更新监听
-    const problemUpdateWatcher = new ContestProblemUpdateWatcher(context, contestSpaceManager);
+    const problemUpdateWatcher = new ContestProblemUpdateWatcher(contestSpaceManager);
     context.subscriptions.push(problemUpdateWatcher);
 
     context.subscriptions.push(contestSpaceManager);
@@ -101,12 +101,16 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(openProblemDisposable);
 
     // 创建代码文件命令
-    const createCodeFileDisposable = vscode.commands.registerCommand('nowcoderac.createCodeFile', (problemItem, generateCphProb) => createCodeFile(context, problemItem, generateCphProb));
+    const createCodeFileDisposable = vscode.commands.registerCommand('nowcoderac.createCodeFile', createCodeFile);
     context.subscriptions.push(createCodeFileDisposable);
     
     // 提交解答命令
     const submitSolutionDisposable = vscode.commands.registerCommand('nowcoderac.submitSolution', submitSolution);
     context.subscriptions.push(submitSolutionDisposable);
+
+    // 提交当前代码文件命令
+    const submitCurrentFileDisposable = vscode.commands.registerCommand('nowcoderac.submitCurrentFile', submitCurrentFile);
+    context.subscriptions.push(submitCurrentFileDisposable);
     
     // 刷新提交记录命令
     const refreshSubmissionListDisposable = vscode.commands.registerCommand('nowcoderac.refreshSubmissionList', refreshSubmissionList);

@@ -23,7 +23,7 @@ export class CphService {
      * @param srcFileName 源文件名
      * @returns prob文件路径
      */
-    private getProbPath(srcFileName: string, cphSaveLocation?: string) : string | null {
+    private getProbPath(srcFileName: string) : string | null {
         const contestPath = this.contestManager.getContestFolderPath();
         if (!contestPath) {
             return null;
@@ -36,7 +36,7 @@ export class CphService {
             .digest('hex')
             .substr(0);
         const baseProbName = `.${srcFileName}_${hash}.prob`;
-        const cphFolder = cphSaveLocation ?? path.join(contestPath, '.cph');
+        const cphFolder = path.join(contestPath, '.cph');
         return path.join(cphFolder, baseProbName);
     }
 
@@ -45,8 +45,8 @@ export class CphService {
      * @param srcFileName 源文件名
      * @returns prob模型
      */
-    readExistingProb(srcFileName: string, cphSaveLocation?: string) : CphProb | undefined {
-        const probPath = this.getProbPath(srcFileName, cphSaveLocation);
+    readExistingProb(srcFileName: string) : CphProb | undefined {
+        const probPath = this.getProbPath(srcFileName);
         if (!probPath) {
             return undefined;
         }
@@ -66,8 +66,8 @@ export class CphService {
      * @param prob prob模型
      * @returns 是否成功保存
      */
-    saveProb(srcFileName: string, prob: CphProb, cphSaveLocation?: string) : boolean {
-        const probPath = this.getProbPath(srcFileName, cphSaveLocation);
+    saveProb(srcFileName: string, prob: CphProb) : boolean {
+        const probPath = this.getProbPath(srcFileName);
         if (!probPath) {
             return false;
         }
@@ -143,24 +143,23 @@ export class CphService {
     syncProblemSampleTests(
         srcFileName: string,
         problem: Problem,
-        previousExtra?: ProblemExtra,
-        cphSaveLocation?: string
+        previousExtra?: ProblemExtra
     ): CphSampleSyncResult {
         if (!problem.extra) {
             return { updated: false, skipped: true, reason: 'missing problem extra' };
         }
 
-        const probPath = this.getProbPath(srcFileName, cphSaveLocation);
+        const probPath = this.getProbPath(srcFileName);
         if (!probPath) {
             return { updated: false, skipped: true, reason: 'missing prob path' };
         }
 
         if (!fs.existsSync(probPath)) {
             const createdProb = this.createProb(srcFileName, problem);
-            return { updated: createdProb ? this.saveProb(srcFileName, createdProb, cphSaveLocation) : false, skipped: false };
+            return { updated: createdProb ? this.saveProb(srcFileName, createdProb) : false, skipped: false };
         }
 
-        const existingProb = this.readExistingProb(srcFileName, cphSaveLocation);
+        const existingProb = this.readExistingProb(srcFileName);
         if (!existingProb) {
             return { updated: false, skipped: true, reason: 'unreadable prob file' };
         }
@@ -174,15 +173,15 @@ export class CphService {
             if (syncResult.skipped) {
                 return syncResult;
             }
-            return this.saveIfChanged(srcFileName, existingProb, syncResult.prob!, cphSaveLocation);
+            return this.saveIfChanged(srcFileName, existingProb, syncResult.prob!);
         }
 
         if (existingProb.tests.length === 0) {
-            return this.overwriteProbWithOfficialSamples(srcFileName, existingProb, problem, nextTests, nextSampleSignatures, cphSaveLocation);
+            return this.overwriteProbWithOfficialSamples(srcFileName, existingProb, problem, nextTests, nextSampleSignatures);
         }
 
         if (previousExtra && this.testsMatchExamples(existingProb.tests, previousExtra.examples)) {
-            return this.convertLegacyProb(srcFileName, existingProb, problem, nextTests, nextSampleSignatures, cphSaveLocation);
+            return this.convertLegacyProb(srcFileName, existingProb, problem, nextTests, nextSampleSignatures);
         }
 
         return { updated: false, skipped: false, reason: 'ignored prob without nowcoderac metadata' };
@@ -237,11 +236,10 @@ export class CphService {
         existingProb: CphProb,
         problem: Problem,
         nextOfficialTests: CphTest[],
-        nextSampleSignatures: string[],
-        cphSaveLocation?: string
+        nextSampleSignatures: string[]
     ): CphSampleSyncResult {
         const nextProb = this.createSyncedProb(existingProb, problem, nextOfficialTests, nextSampleSignatures);
-        return this.saveIfChanged(srcFileName, existingProb, nextProb, cphSaveLocation);
+        return this.saveIfChanged(srcFileName, existingProb, nextProb);
     }
 
     /**
@@ -261,11 +259,10 @@ export class CphService {
         existingProb: CphProb,
         problem: Problem,
         nextOfficialTests: CphTest[],
-        nextSampleSignatures: string[],
-        cphSaveLocation?: string
+        nextSampleSignatures: string[]
     ): CphSampleSyncResult {
         const nextProb = this.createSyncedProb(existingProb, problem, nextOfficialTests, nextSampleSignatures);
-        return this.saveIfChanged(srcFileName, existingProb, nextProb, cphSaveLocation);
+        return this.saveIfChanged(srcFileName, existingProb, nextProb);
     }
 
     /**
@@ -360,12 +357,11 @@ export class CphService {
     private saveIfChanged(
         srcFileName: string,
         previousProb: CphProb,
-        nextProb: CphProb,
-        cphSaveLocation?: string
+        nextProb: CphProb
     ): CphSampleSyncResult {
         if (JSON.stringify(previousProb) === JSON.stringify(nextProb)) {
             return { updated: false, skipped: false };
         }
-        return { updated: this.saveProb(srcFileName, nextProb, cphSaveLocation), skipped: false };
+        return { updated: this.saveProb(srcFileName, nextProb), skipped: false };
     }
 }

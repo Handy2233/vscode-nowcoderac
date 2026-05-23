@@ -21,7 +21,26 @@ export class ContestSpaceManager extends vscode.Disposable {
         this.currentContest = undefined;
 
         this._textEditorChangedListener = vscode.window.onDidChangeActiveTextEditor(this.handleActiveEditorChange, this);
+        this.openWorkspaceRootContestSpace();
         this.handleActiveEditorChange(vscode.window.activeTextEditor);  // 以当前打开的编辑器触发一次事件
+    }
+
+    private openWorkspaceRootContestSpace(): void {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0];
+        if (!workspaceFolder || workspaceFolder.uri.scheme !== 'file') {
+            return;
+        }
+
+        const configPath = path.join(workspaceFolder.uri.fsPath, 'nowcoderac.json');
+        if (!fs.existsSync(configPath)) {
+            return;
+        }
+
+        try {
+            this.openContestSpace(configPath);
+        } catch (error) {
+            vscode.window.showErrorMessage(`打开比赛空间失败: ${error instanceof Error ? error.message : String(error)}`);
+        }
     }
 
     private async handleActiveEditorChange(editor: vscode.TextEditor | undefined): Promise<void> {

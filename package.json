@@ -27,11 +27,18 @@
       {
         "command": "nowcoderac.createContestSpace",
         "title": "创建比赛工作空间",
+        "icon": "$(add)",
         "category": "NowCoder"
       },
       {
         "command": "nowcoderac.refreshProblemList",
         "title": "刷新题目列表",
+        "icon": "$(refresh)",
+        "category": "NowCoder"
+      },
+      {
+        "command": "nowcoderac.refreshContestList",
+        "title": "刷新比赛列表",
         "icon": "$(refresh)",
         "category": "NowCoder"
       },
@@ -93,6 +100,10 @@
     },
     "views": {
       "nowcoderac-explorer": [
+        {
+          "id": "nowcoderac-contests",
+          "name": "比赛列表"
+        },
         {
           "id": "nowcoderac-problems",
           "name": "题目列表"
@@ -173,6 +184,16 @@
     },
     "menus": {
       "view/title": [
+        {
+          "command": "nowcoderac.createContestSpace",
+          "when": "view == nowcoderac-contests",
+          "group": "navigation@1"
+        },
+        {
+          "command": "nowcoderac.refreshContestList",
+          "when": "view == nowcoderac-contests",
+          "group": "navigation@2"
+        },
         {
           "command": "nowcoderac.refreshProblemList",
           "when": "view == nowcoderac-problems",

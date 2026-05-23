@@ -54,6 +54,11 @@ export class ProblemItem extends vscode.TreeItem {
         this.description = `通过率: ${(problem.info.acceptedCount / Math.max(1, problem.info.submitCount) * 100).toFixed(2)}% | ${problem.info.myStatus || '未提交'}`;
         
         this.contextValue = 'problem';
+        this.command = {
+            command: 'nowcoderac.openProblem',
+            title: '打开题目',
+            arguments: [this]
+        };
         
         // 设置图标
         if (problem.info.myStatus === '通过') {

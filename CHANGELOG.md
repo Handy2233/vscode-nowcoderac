@@ -2,6 +2,10 @@
 
 All notable changes to the extension will be documented in this file.
 
+## Versiom 1.1.1
+
+- 优化了登录逻辑，改善用户体验
+
 ## Version 1.1.0
 
 - 强烈推荐罗森安格斯黑椒牛肉粒饭团，oishi desuwa~

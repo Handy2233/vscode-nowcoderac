@@ -206,23 +206,6 @@
           "group": "navigation"
         }
       ],
-      "view/item/context": [
-        {
-          "command": "nowcoderac.openProblem",
-          "when": "view == nowcoderac-problems",
-          "group": "inline@1"
-        },
-        {
-          "command": "nowcoderac.createCodeFile",
-          "when": "view == nowcoderac-problems",
-          "group": "inline@2"
-        },
-        {
-          "command": "nowcoderac.submitSolution",
-          "when": "view == nowcoderac-problems",
-          "group": "inline@3"
-        }
-      ],
       "editor/title": [
         {
           "command": "nowcoderac.submitCurrentFile",

@@ -5,7 +5,7 @@ import { SubmissionsProvider } from './views/submissionsProvider';
 import { RankingsProvider } from './views/rankingsProvider';
 import { ContestsProvider } from './views/contestsProvider';
 import { ContestSpaceManager } from './services/contestSpaceManager';
-import { createCodeFile, openProblem, createContestSpace, refreshProblemList, submitSolution, submitCurrentFile, refreshSubmissionList, refreshRealtimeRank, login, logout, openContestFromList, refreshContestList } from './services/commands';
+import { createCodeFile, openProblem, createContestSpace, refreshProblemList, submitSolution, submitCurrentFile, refreshSubmissionList, refreshRealtimeRank, login, logout, openContestFromList, refreshContestList, deleteContestFromList } from './services/commands';
 import { ContestServiceEventWrapper } from './utils/contestServiceEventWrapper';
 import { ContestCountdownTimer } from './utils/contestCountdownTimer';
 import { ContestAnnouncementWatcher } from './services/contestAnnouncementWatcher';
@@ -48,6 +48,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     const contestSpaceManager = ContestSpaceManager.createInstance(context);
     const contestRegistry = new ContestRegistryService(context);
+    contestRegistry.pruneMissingContests();
     contestRegistry.migrateLegacyContests(async (contestId) => {
         const result = await nowcoderService.getContestTitle(contestId);
         return result.success ? result.data ?? undefined : undefined;
@@ -57,7 +58,7 @@ export function activate(context: vscode.ExtensionContext) {
 
     // 初始化视图提供者
     const contestServiceEventWrapper = new ContestServiceEventWrapper(contestSpaceManager);
-    const contestsProvider = new ContestsProvider(contestRegistry);
+    const contestsProvider = new ContestsProvider(contestRegistry, contestSpaceManager);
     const problemsProvider = new ProblemsProvider(contestServiceEventWrapper);
     const submissionsProvider = new SubmissionsProvider(contestServiceEventWrapper);
     const rankingsProvider = new RankingsProvider(contestServiceEventWrapper);
@@ -110,8 +111,12 @@ export function activate(context: vscode.ExtensionContext) {
     context.subscriptions.push(createWorkspaceDisposable);
 
     // 从比赛列表打开比赛命令
-    const openContestFromListDisposable = vscode.commands.registerCommand('nowcoderac.openContestFromList', openContestFromList);
+    const openContestFromListDisposable = vscode.commands.registerCommand('nowcoderac.openContestFromList', contest => openContestFromList(contest, contestRegistry));
     context.subscriptions.push(openContestFromListDisposable);
+
+    // 从比赛列表删除比赛命令
+    const deleteContestFromListDisposable = vscode.commands.registerCommand('nowcoderac.deleteContestFromList', contest => deleteContestFromList(contest, contestRegistry));
+    context.subscriptions.push(deleteContestFromListDisposable);
 
     // 刷新比赛列表命令
     const refreshContestListDisposable = vscode.commands.registerCommand('nowcoderac.refreshContestList', () => refreshContestList(contestRegistry));

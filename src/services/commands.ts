@@ -49,6 +49,20 @@ function parseContestId(input: string | undefined): number | undefined {
     return undefined;
 }
 
+type ContestCommandArgument = ContestRecord | { contest: ContestRecord } | undefined;
+
+function resolveContestRecord(argument: ContestCommandArgument): ContestRecord | undefined {
+    if (!argument) {
+        return undefined;
+    }
+
+    if ('contest' in argument) {
+        return argument.contest;
+    }
+
+    return argument;
+}
+
 async function selectProblemSourceFile(currentContest: ContestService, problemIndex: string): Promise<string | undefined> {
     const sourceFileNames = getProblemSourceFileNames(currentContest, problemIndex);
     if (sourceFileNames.length === 0) {
@@ -284,13 +298,18 @@ export const createContestSpace = async (contestRegistry?: ContestRegistryServic
     }
 };
 
-export const openContestFromList = async (contest: ContestRecord | undefined): Promise<void> => {
+export const openContestFromList = async (
+    contestArgument: ContestCommandArgument,
+    contestRegistry?: ContestRegistryService
+): Promise<void> => {
+    const contest = resolveContestRecord(contestArgument);
     if (!contest) {
         return;
     }
 
     const configPath = path.join(contest.folderPath, 'nowcoderac.json');
     if (!fs.existsSync(configPath)) {
+        contestRegistry?.removeContest(contest.contestId);
         vscode.window.showErrorMessage(`比赛配置文件不存在: ${configPath}`);
         return;
     }
@@ -303,6 +322,38 @@ export const openContestFromList = async (contest: ContestRecord | undefined): P
     }
 };
 
+export const deleteContestFromList = async (
+    contestArgument: ContestCommandArgument,
+    contestRegistry: ContestRegistryService
+): Promise<void> => {
+    const contest = resolveContestRecord(contestArgument);
+    if (!contest) {
+        return;
+    }
+
+    const answer = await vscode.window.showWarningMessage(
+        `确定删除「${contest.title}」吗？将同时删除本地比赛文件夹：${contest.folderPath}`,
+        { modal: true },
+        '删除'
+    );
+    if (answer !== '删除') {
+        return;
+    }
+
+    try {
+        if (fs.existsSync(contest.folderPath)) {
+            await vscode.workspace.fs.delete(vscode.Uri.file(contest.folderPath), {
+                recursive: true,
+                useTrash: false
+            });
+        }
+        contestRegistry.removeContest(contest.contestId);
+        vscode.window.showInformationMessage(`已删除比赛: ${contest.title}`);
+    } catch (error) {
+        vscode.window.showErrorMessage(`删除比赛失败: ${error instanceof Error ? error.message : String(error)}`);
+    }
+};
+
 export const refreshContestList = async (contestRegistry: ContestRegistryService): Promise<void> => {
     if (!contestRegistry.hasWorkspaceRoot()) {
         vscode.window.showErrorMessage('请先打开一个 VS Code 工作区，再刷新比赛列表');
@@ -310,17 +361,22 @@ export const refreshContestList = async (contestRegistry: ContestRegistryService
     }
 
     try {
-        const migratedCount = await vscode.window.withProgress({
+        const result = await vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
             title: '正在刷新比赛列表...',
             cancellable: false
         }, async () => {
+            const removedCount = contestRegistry.pruneMissingContests();
             return contestRegistry.migrateLegacyContests(async (contestId) => {
                 const result = await nowcoderService.getContestTitle(contestId);
                 return result.success ? result.data ?? undefined : undefined;
-            });
+            }).then(migratedCount => ({ migratedCount, removedCount }));
         });
-        vscode.window.showInformationMessage(`比赛列表刷新完成，发现 ${migratedCount} 场比赛`);
+        const parts = [`发现 ${result.migratedCount} 场比赛`];
+        if (result.removedCount > 0) {
+            parts.push(`移除 ${result.removedCount} 条失效记录`);
+        }
+        vscode.window.showInformationMessage(`比赛列表刷新完成，${parts.join('，')}`);
     } catch (error) {
         vscode.window.showErrorMessage(`刷新比赛列表失败: ${error instanceof Error ? error.message : String(error)}`);
     }

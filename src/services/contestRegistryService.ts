@@ -19,14 +19,26 @@ export class ContestRegistryService implements vscode.Disposable {
 
     private readonly _onDidChangeContests = new vscode.EventEmitter<void>();
     readonly onDidChangeContests = this._onDidChangeContests.event;
+    private readonly disposables: vscode.Disposable[] = [];
+    private contestConfigWatchers: vscode.Disposable[] = [];
 
     constructor(private readonly context: vscode.ExtensionContext) {
-        context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        this.disposables.push(vscode.workspace.onDidChangeWorkspaceFolders(() => {
+            this.syncContestConfigWatchers();
             this._onDidChangeContests.fire();
         }));
+
+        const configWatcher = vscode.workspace.createFileSystemWatcher(`**/${ContestRegistryService.CONTEST_CONFIG_FILE_NAME}`);
+        this.disposables.push(configWatcher);
+        this.disposables.push(configWatcher.onDidDelete(uri => {
+            this.removeContestByConfigPath(uri.fsPath);
+        }));
+        this.syncContestConfigWatchers();
     }
 
     dispose(): void {
+        this.disposeContestConfigWatchers();
+        this.disposables.forEach(disposable => disposable.dispose());
         this._onDidChangeContests.dispose();
     }
 
@@ -82,6 +94,63 @@ export class ContestRegistryService implements vscode.Disposable {
         this._onDidChangeContests.fire();
     }
 
+    removeContest(contestId: number): boolean {
+        const rootPath = this.getWorkspaceRootPath();
+        if (!rootPath) {
+            return false;
+        }
+
+        const data = this.readData(rootPath);
+        const contests = data.contests.filter(contest => contest.contestId !== contestId);
+        if (contests.length === data.contests.length) {
+            return false;
+        }
+
+        this.writeData(rootPath, { contests: this.sortContests(contests) });
+        this._onDidChangeContests.fire();
+        return true;
+    }
+
+    pruneMissingContests(): number {
+        const rootPath = this.getWorkspaceRootPath();
+        if (!rootPath) {
+            return 0;
+        }
+
+        const data = this.readData(rootPath);
+        const contests = data.contests.filter(contest => {
+            return fs.existsSync(this.getContestConfigPath(contest.folderPath));
+        });
+        const removedCount = data.contests.length - contests.length;
+        if (removedCount === 0) {
+            return 0;
+        }
+
+        this.writeData(rootPath, { contests: this.sortContests(contests) });
+        this._onDidChangeContests.fire();
+        return removedCount;
+    }
+
+    removeContestByConfigPath(configPath: string): boolean {
+        const rootPath = this.getWorkspaceRootPath();
+        if (!rootPath) {
+            return false;
+        }
+
+        const normalizedConfigPath = this.normalizePath(configPath);
+        const data = this.readData(rootPath);
+        const contests = data.contests.filter(contest => {
+            return this.normalizePath(this.getContestConfigPath(contest.folderPath)) !== normalizedConfigPath;
+        });
+        if (contests.length === data.contests.length) {
+            return false;
+        }
+
+        this.writeData(rootPath, { contests: this.sortContests(contests) });
+        this._onDidChangeContests.fire();
+        return true;
+    }
+
     private readData(rootPath: string | undefined = this.getWorkspaceRootPath()): ContestRegistryData {
         if (!rootPath) {
             return { contests: [] };
@@ -106,10 +175,15 @@ export class ContestRegistryService implements vscode.Disposable {
             JSON.stringify(data, null, 4),
             'utf-8'
         );
+        this.syncContestConfigWatchers(rootPath, data.contests);
     }
 
     private getRegistryFilePath(rootPath: string): string {
         return path.join(rootPath, ContestRegistryService.REGISTRY_DIR_NAME, ContestRegistryService.REGISTRY_FILE_NAME);
+    }
+
+    private getContestConfigPath(folderPath: string): string {
+        return path.join(folderPath, ContestRegistryService.CONTEST_CONFIG_FILE_NAME);
     }
 
     private async findLegacyContestRecords(
@@ -161,6 +235,42 @@ export class ContestRegistryService implements vscode.Disposable {
     private isPathInside(parentPath: string, childPath: string): boolean {
         const relativePath = path.relative(parentPath, childPath);
         return relativePath === '' || (!!relativePath && !relativePath.startsWith('..') && !path.isAbsolute(relativePath));
+    }
+
+    private normalizePath(filePath: string): string {
+        return path.resolve(filePath);
+    }
+
+    private syncContestConfigWatchers(
+        rootPath: string | undefined = this.getWorkspaceRootPath(),
+        contests: ContestRecord[] = this.readData(rootPath).contests
+    ): void {
+        this.disposeContestConfigWatchers();
+        if (!rootPath) {
+            return;
+        }
+
+        const watchedConfigPaths = new Set<string>();
+        for (const contest of contests) {
+            const configPath = this.normalizePath(this.getContestConfigPath(contest.folderPath));
+            if (watchedConfigPaths.has(configPath)) {
+                continue;
+            }
+            watchedConfigPaths.add(configPath);
+
+            const watcher = vscode.workspace.createFileSystemWatcher(
+                new vscode.RelativePattern(contest.folderPath, ContestRegistryService.CONTEST_CONFIG_FILE_NAME)
+            );
+            this.contestConfigWatchers.push(watcher);
+            this.contestConfigWatchers.push(watcher.onDidDelete(uri => {
+                this.removeContestByConfigPath(uri.fsPath);
+            }));
+        }
+    }
+
+    private disposeContestConfigWatchers(): void {
+        this.contestConfigWatchers.forEach(disposable => disposable.dispose());
+        this.contestConfigWatchers = [];
     }
 
     private sortContests(contests: ContestRecord[]): ContestRecord[] {

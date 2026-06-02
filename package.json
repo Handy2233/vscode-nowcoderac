@@ -43,6 +43,12 @@
         "category": "NowCoder"
       },
       {
+        "command": "nowcoderac.deleteContestFromList",
+        "title": "从比赛列表删除",
+        "icon": "$(trash)",
+        "category": "NowCoder"
+      },
+      {
         "command": "nowcoderac.refreshProblemContent",
         "title": "刷新题目内容",
         "icon": "$(refresh)",
@@ -208,19 +214,9 @@
       ],
       "view/item/context": [
         {
-          "command": "nowcoderac.openProblem",
-          "when": "view == nowcoderac-problems",
-          "group": "inline@1"
-        },
-        {
-          "command": "nowcoderac.createCodeFile",
-          "when": "view == nowcoderac-problems",
-          "group": "inline@2"
-        },
-        {
-          "command": "nowcoderac.submitSolution",
-          "when": "view == nowcoderac-problems",
-          "group": "inline@3"
+          "command": "nowcoderac.deleteContestFromList",
+          "when": "view == nowcoderac-contests && viewItem == contest",
+          "group": "inline"
         }
       ],
       "editor/title": [
@@ -239,7 +235,8 @@
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "vscode:prepublish": "npm run package",
-    "package": "npm run check-types && node esbuild.js --production"
+    "package": "npm run check-types && node esbuild.js --production",
+    "release": "bash release.sh"
   },
   "devDependencies": {
     "@types/cheerio": "^0.22.35",

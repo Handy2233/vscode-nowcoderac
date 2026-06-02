@@ -2,13 +2,15 @@ import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
 import { ContestService } from './contestService';
-import { getAutoDetectContestConfigPref } from '../utils/perferenceHelper';
+import { Problem } from '../models/models';
+import { getProblemMarkdownPath, writeProblemMarkdown } from '../utils/problemMarkdown';
 
 export class ContestSpaceManager extends vscode.Disposable {
     private static instance: ContestSpaceManager | undefined = undefined;
     private readonly _onContestSpaceChanged = new vscode.EventEmitter<ContestService | undefined>();
     private readonly _textEditorChangedListener: vscode.Disposable;
     private currentContest: ContestService | undefined = undefined;
+    private activeEditorChangeVersion = 0;
 
     readonly onContestSpaceChanged = this._onContestSpaceChanged.event;
 
@@ -44,32 +46,87 @@ export class ContestSpaceManager extends vscode.Disposable {
     }
 
     private async handleActiveEditorChange(editor: vscode.TextEditor | undefined): Promise<void> {
-        if (!getAutoDetectContestConfigPref()) {
-            return;
-        }
-
+        const version = ++this.activeEditorChangeVersion;
         if (!editor || editor.document.uri.scheme !== 'file') {
             return;
         }
 
+        const sourceFilePath = editor.document.uri.fsPath;
         // 查找配置文件
-        const documentDir = path.dirname(editor.document.uri.fsPath);
+        const documentDir = path.dirname(sourceFilePath);
         const potentialConfigPath = path.join(documentDir, 'nowcoderac.json');
 
         // 已经是当前配置文件了，或者不存在配置文件
-        if (this.currentContest?.getContestFolderPath() === documentDir || !fs.existsSync(potentialConfigPath)) {
+        if (!fs.existsSync(potentialConfigPath)) {
             return;
         }
-        
-        // 检查配置文件是否存在
-        const result = await vscode.window.showInformationMessage(`检测到新的比赛配置文件: ${potentialConfigPath}，是否打开？`, { modal: true }, { title: '是' });
-        if (result?.title === '是') {
-            try {
-                this.openContestSpace(potentialConfigPath);
-            } catch (error) {
-                vscode.window.showErrorMessage(`打开比赛空间失败: ${error instanceof Error ? error.message : String(error)}`);
+
+        const contestDir = fs.realpathSync(documentDir);
+        let contestService = this.currentContest;
+        try {
+            if (contestService?.getContestFolderPath() !== contestDir) {
+                contestService = this.openContestSpace(potentialConfigPath);
             }
+        } catch (error) {
+            vscode.window.showErrorMessage(`打开比赛空间失败: ${error instanceof Error ? error.message : String(error)}`);
+            return;
         }
+
+        try {
+            await this.openProblemPreviewForSourceFile(contestService, sourceFilePath, version);
+        } catch (error) {
+            vscode.window.showErrorMessage(`打开题面失败: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    }
+
+    private async openProblemPreviewForSourceFile(
+        contestService: ContestService,
+        sourceFilePath: string,
+        version: number
+    ): Promise<void> {
+        const problem = await this.getProblemBySourceFilePath(contestService, sourceFilePath);
+        if (!problem || !this.isCurrentActiveSourceFile(sourceFilePath, version)) {
+            return;
+        }
+
+        const extra = await contestService.getProblemExtra(problem.info.index);
+        if (!this.isCurrentActiveSourceFile(sourceFilePath, version)) {
+            return;
+        }
+
+        const contestFolderPath = contestService.getContestFolderPath();
+        const markdownPath = getProblemMarkdownPath(contestFolderPath, problem.info.index);
+        writeProblemMarkdown(contestFolderPath, problem, extra);
+        await vscode.commands.executeCommand('markdown.showPreviewToSide', vscode.Uri.file(markdownPath));
+    }
+
+    private async getProblemBySourceFilePath(
+        contestService: ContestService,
+        sourceFilePath: string
+    ): Promise<Problem | undefined> {
+        if (!this.isPathInContestRoot(contestService, sourceFilePath)) {
+            return undefined;
+        }
+
+        const sourceFileName = path.basename(sourceFilePath);
+        const problems = await contestService.getProblems();
+        return [...problems]
+            .sort((a, b) => b.info.index.length - a.info.index.length)
+            .find(problem => contestService.cphService.getExistingSourceFileNames(problem.info.index).includes(sourceFileName));
+    }
+
+    private isPathInContestRoot(contestService: ContestService, filePath: string): boolean {
+        return fs.existsSync(filePath) && path.relative(contestService.getContestFolderPath(), path.dirname(filePath)) === '';
+    }
+
+    private isCurrentActiveSourceFile(sourceFilePath: string, version: number): boolean {
+        const activeFilePath = vscode.window.activeTextEditor?.document.uri.fsPath;
+        if (!activeFilePath || !fs.existsSync(activeFilePath) || !fs.existsSync(sourceFilePath)) {
+            return false;
+        }
+
+        return this.activeEditorChangeVersion === version
+            && fs.realpathSync(activeFilePath) === fs.realpathSync(sourceFilePath);
     }
 
     /**

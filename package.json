@@ -43,6 +43,12 @@
         "category": "NowCoder"
       },
       {
+        "command": "nowcoderac.deleteContestFromList",
+        "title": "从比赛列表删除",
+        "icon": "$(trash)",
+        "category": "NowCoder"
+      },
+      {
         "command": "nowcoderac.refreshProblemContent",
         "title": "刷新题目内容",
         "icon": "$(refresh)",
@@ -204,6 +210,13 @@
           "command": "nowcoderac.refreshRealtimeRank",
           "when": "view == nowcoderac-rankings",
           "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "nowcoderac.deleteContestFromList",
+          "when": "view == nowcoderac-contests && viewItem == contest",
+          "group": "inline"
         }
       ],
       "editor/title": [

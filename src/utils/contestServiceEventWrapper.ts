@@ -21,6 +21,7 @@ export class ContestServiceEventWrapper implements IContestDataProvider {
     private rankUpdatedDisposer: vscode.Disposable | undefined;
 
     private service: ContestService | undefined;
+    private bindVersion = 0;
 
     constructor(contestSpaceManager: ContestSpaceManager) {
         contestSpaceManager.onContestSpaceChanged((contestService) => {
@@ -30,6 +31,7 @@ export class ContestServiceEventWrapper implements IContestDataProvider {
     }
 
     private rebind(contestService: ContestService | undefined) {
+        const version = ++this.bindVersion;
         this.service = contestService;
         this.problemUpdatedDisposer?.dispose();
         this.submissionStatusChangedDisposer?.dispose();
@@ -53,24 +55,52 @@ export class ContestServiceEventWrapper implements IContestDataProvider {
                 this._onRankUpdated.fire(rank);
             });
         }
-        this.refireAllEvents();
+        this.refireAllEvents(version);
     }
 
-    private async refireAllEvents() {
-        if (this.service) {
-            const problems = await this.service.getProblems(true);
-            this._onProblemsUpdated.fire(problems);
-
-            const submissions = await this.service.getSubmissions(true);
-            this._onSubmissionsUpdated.fire(submissions);
-
-            const rank = await this.service.getRealtimeRank(true);
-            this._onRankUpdated.fire(rank);
-        } else {
+    private async refireAllEvents(version: number) {
+        const service = this.service;
+        if (!service) {
             this._onProblemsUpdated.fire([]);
             this._onSubmissionsUpdated.fire([]);
             this._onRankUpdated.fire(undefined);
+            return;
         }
+
+        this._onProblemsUpdated.fire([]);
+        this._onSubmissionsUpdated.fire([]);
+        this._onRankUpdated.fire(undefined);
+
+        try {
+            const problems = await service.getProblems(true);
+            if (this.isCurrentBinding(version, service)) {
+                this._onProblemsUpdated.fire(problems);
+            }
+        } catch (error) {
+            console.error('刷新题目列表失败:', error);
+        }
+
+        try {
+            const submissions = await service.getSubmissions(true);
+            if (this.isCurrentBinding(version, service)) {
+                this._onSubmissionsUpdated.fire(submissions);
+            }
+        } catch (error) {
+            console.error('刷新提交列表失败:', error);
+        }
+
+        try {
+            const rank = await service.getRealtimeRank(true);
+            if (this.isCurrentBinding(version, service)) {
+                this._onRankUpdated.fire(rank);
+            }
+        } catch (error) {
+            console.error('刷新排名失败:', error);
+        }
+    }
+
+    private isCurrentBinding(version: number, service: ContestService): boolean {
+        return this.bindVersion === version && this.service === service;
     }
 
     async getProblems(noCache: boolean = false): Promise<Problem[]> {

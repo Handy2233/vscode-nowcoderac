@@ -98,7 +98,8 @@ npm run package
 echo "Packaging VSIX: $package_name"
 npx vsce package --out "$package_name"
 
-git add package.json package-lock.json dist/extension.js
+git add package.json package-lock.json
+git add -f dist/extension.js
 
 if git diff --cached --quiet; then
   echo "No release file changes were staged." >&2

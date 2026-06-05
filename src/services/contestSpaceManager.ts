@@ -11,6 +11,7 @@ export class ContestSpaceManager extends vscode.Disposable {
     private readonly _textEditorChangedListener: vscode.Disposable;
     private currentContest: ContestService | undefined = undefined;
     private activeEditorChangeVersion = 0;
+    private lastProblemPreviewSourceFilePath: string | undefined = undefined;
 
     readonly onContestSpaceChanged = this._onContestSpaceChanged.event;
 
@@ -88,6 +89,9 @@ export class ContestSpaceManager extends vscode.Disposable {
         if (!problem || !this.isCurrentActiveSourceFile(sourceFilePath, version)) {
             return;
         }
+        if (!this.hasProblemPreviewSourceFileChanged(sourceFilePath)) {
+            return;
+        }
 
         const extra = await contestService.getProblemExtra(problem.info.index);
         if (!this.isCurrentActiveSourceFile(sourceFilePath, version)) {
@@ -97,6 +101,7 @@ export class ContestSpaceManager extends vscode.Disposable {
         const contestFolderPath = contestService.getContestFolderPath();
         const markdownPath = getProblemMarkdownPath(contestFolderPath, problem.info.index);
         writeProblemMarkdown(contestFolderPath, problem, extra);
+        this.lastProblemPreviewSourceFilePath = fs.realpathSync(sourceFilePath);
         await vscode.commands.executeCommand('markdown.showPreviewToSide', vscode.Uri.file(markdownPath));
     }
 
@@ -127,6 +132,14 @@ export class ContestSpaceManager extends vscode.Disposable {
 
         return this.activeEditorChangeVersion === version
             && fs.realpathSync(activeFilePath) === fs.realpathSync(sourceFilePath);
+    }
+
+    private hasProblemPreviewSourceFileChanged(sourceFilePath: string): boolean {
+        if (!this.lastProblemPreviewSourceFilePath) {
+            return true;
+        }
+
+        return fs.realpathSync(sourceFilePath) !== this.lastProblemPreviewSourceFilePath;
     }
 
     /**

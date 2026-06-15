@@ -1,6 +1,6 @@
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
-import * as vscode from 'vscode';
 import { loginPromptCoordinator } from './loginPromptCoordinator';
+import { getNowcoderRequestHeaders } from './userAgent';
 
 /**
  * HTTP客户端
@@ -9,20 +9,16 @@ export class HttpClient {
     client: AxiosInstance;
 
     /**
-     * 获取插件版本号
+     * 合并业务请求基础 UA 与调用方提供的请求头。
+     * @param headers 当前业务请求需要附加的请求头。
+     * @returns 包含移动端 UA 策略的请求头。
      */
-    private getExtensionVersion(): string {
-        const extension = vscode.extensions.getExtension('Handy2233.nowcoderac-plus');
-        return extension?.packageJSON.version || '1.0.0';
+    private getRequestHeaders(headers: Record<string, string>): Record<string, string> {
+        return getNowcoderRequestHeaders(headers);
     }
 
     constructor() {
-        const version = this.getExtensionVersion();
-        this.client = axios.create({
-            headers: {
-                'User-Agent': `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36 NowCoderAC/${version}`
-            }
-        });
+        this.client = axios.create();
     }
 
     /**
@@ -45,9 +41,9 @@ export class HttpClient {
         const token = await this.getToken();
 
         const requestConfig: AxiosRequestConfig = {
-            headers: {
+            headers: this.getRequestHeaders({
                 Cookie: `t=${token}`,
-            }
+            })
         };
 
         try {
@@ -69,10 +65,10 @@ export class HttpClient {
         const token = await this.getToken();
 
         const requestConfig: AxiosRequestConfig = {
-            headers: {
+            headers: this.getRequestHeaders({
                 Cookie: `t=${token}`,
                 "Content-Type": 'application/json; charset=UTF-8',
-            }
+            })
         };
 
         try {
@@ -99,10 +95,10 @@ export class HttpClient {
         });
 
         const config: AxiosRequestConfig = {
-            headers: {
+            headers: this.getRequestHeaders({
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                 Cookie: `t=${token}`
-            }
+            })
         };
 
         try {
@@ -123,10 +119,10 @@ export class HttpClient {
         const token = await this.getToken();
 
         const config: AxiosRequestConfig = {
-            headers: {
+            headers: this.getRequestHeaders({
                 Cookie: `t=${token}`,
                 Accept: 'text/html',
-            },
+            }),
             responseType: 'text'
         };
 

@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
-import axios from 'axios';
+import axios, { AxiosRequestConfig, AxiosResponse } from 'axios';
 import { constants, publicEncrypt } from 'crypto';
+import { getNowcoderRequestHeaders } from './services/userAgent';
 
 type NowcoderResponse<T = unknown> = {
     code?: number;
@@ -17,12 +18,6 @@ type NowcoderCaptchaConfig = {
     captchaId?: string;
 };
 
-type NowcoderWechatQrCodeConfig = {
-    ticket?: string;
-    imageUrl?: string;
-    expireSecond?: number;
-};
-
 type NowcoderLoginResult = {
     token?: string;
     cookieHeader: string;
@@ -34,13 +29,6 @@ type NowcoderLoginResult = {
 
 type NowcoderCaptchaResult = {
     captchaId: string;
-    cookieHeader: string;
-};
-
-type NowcoderWechatQrCodeResult = {
-    ticket: string;
-    imageUrl: string;
-    expireSecond: number;
     cookieHeader: string;
 };
 
@@ -70,13 +58,17 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
 
     private async fetchCurrentUserName(token: string): Promise<string | undefined> {
         try {
-            const response = await axios.get<string>('https://ac.nowcoder.com/acm/contest/vip-index', {
-                headers: {
+            const response = await this.getWithLoginUserAgent<string>(
+                'fetch current user name',
+                'https://ac.nowcoder.com/acm/contest/vip-index',
+                {
                     Cookie: `t=${token}`,
                     Accept: 'text/html'
                 },
-                responseType: 'text'
-            });
+                {
+                    responseType: 'text'
+                }
+            );
 
             return response.data.match(/ownerName:\s*['"]([^'"]+)['"]/)?.[1];
         } catch (error) {
@@ -138,10 +130,6 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         void vscode.window.showErrorMessage(message);
     }
 
-    private showLoginWarning(message: string): void {
-        void vscode.window.showWarningMessage(message);
-    }
-
     private cancelLogin(): never {
         throw new vscode.CancellationError();
     }
@@ -152,6 +140,77 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
             .map(cookie => cookie.trim())
             .find(cookie => cookie.startsWith(`${key}=`))
             ?.slice(key.length + 1);
+    }
+
+    /**
+     * 合并登录请求基础 UA 与调用方提供的请求头。
+     * @param headers 当前登录请求需要附加的请求头。
+     * @returns 包含登录 UA 的请求头。
+     */
+    private getLoginRequestHeaders(headers: Record<string, string>): Record<string, string> {
+        return getNowcoderRequestHeaders(headers);
+    }
+
+    /**
+     * 使用移动端登录 UA 发送请求。
+     * @param requestName 用于登录调试日志的请求名称。
+     * @param headers 当前登录请求需要附加的请求头。
+     * @param requestFactory 接收完整请求头并执行 HTTP 请求的函数。
+     * @returns 牛客登录请求响应。
+     */
+    private async requestWithLoginUserAgent<T>(
+        requestName: string,
+        headers: Record<string, string>,
+        requestFactory: (requestHeaders: Record<string, string>) => Promise<AxiosResponse<T>>
+    ): Promise<AxiosResponse<T>> {
+        this.debugLogin('sending login request with mobile UA', { requestName });
+        return requestFactory(this.getLoginRequestHeaders(headers));
+    }
+
+    /**
+     * 发送牛客登录 GET 请求，并应用移动端登录 UA。
+     * @param requestName 用于登录调试日志的请求名称。
+     * @param url 请求 URL。
+     * @param headers 当前登录请求需要附加的请求头。
+     * @param config 除 headers 以外的 axios 请求配置。
+     * @returns 牛客登录 GET 请求响应。
+     */
+    private async getWithLoginUserAgent<T>(
+        requestName: string,
+        url: string,
+        headers: Record<string, string>,
+        config: Omit<AxiosRequestConfig, 'headers'> = {}
+    ): Promise<AxiosResponse<T>> {
+        return this.requestWithLoginUserAgent(requestName, headers, requestHeaders =>
+            axios.get<T>(url, {
+                ...config,
+                headers: requestHeaders
+            })
+        );
+    }
+
+    /**
+     * 发送牛客登录 POST 请求，并应用移动端登录 UA。
+     * @param requestName 用于登录调试日志的请求名称。
+     * @param url 请求 URL。
+     * @param data 请求体数据。
+     * @param headers 当前登录请求需要附加的请求头。
+     * @param config 除 headers 以外的 axios 请求配置。
+     * @returns 牛客登录 POST 请求响应。
+     */
+    private async postWithLoginUserAgent<T>(
+        requestName: string,
+        url: string,
+        data: string,
+        headers: Record<string, string>,
+        config: Omit<AxiosRequestConfig, 'headers'> = {}
+    ): Promise<AxiosResponse<T>> {
+        return this.requestWithLoginUserAgent(requestName, headers, requestHeaders =>
+            axios.post<T>(url, data, {
+                ...config,
+                headers: requestHeaders
+            })
+        );
     }
 
     private normalizeRsaPublicKey(publicKey: string): string {
@@ -186,17 +245,18 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
             body.set('netease_validate', neteaseValidate);
         }
 
-        const loginResponse = await axios.post<NowcoderResponse>(
+        const loginResponse = await this.postWithLoginUserAgent<NowcoderResponse>(
+            'password login',
             'https://www.nowcoder.com/login-or-register/do',
             body.toString(),
             {
-                headers: {
-                    Cookie: cookieHeader,
-                    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-                    'X-Requested-With': 'XMLHttpRequest',
-                    langType: 'Ch',
-                    Referer: 'https://www.nowcoder.com/login'
-                },
+                Cookie: cookieHeader,
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest',
+                langType: 'Ch',
+                Referer: 'https://www.nowcoder.com/login'
+            },
+            {
                 validateStatus: () => true
             }
         );
@@ -228,14 +288,15 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
     }
 
     private async getNeteaseCaptcha(cookieHeader: string): Promise<NowcoderCaptchaResult | undefined> {
-        const captchaResponse = await axios.get<NowcoderResponse<NowcoderCaptchaConfig>>(
+        const captchaResponse = await this.getWithLoginUserAgent<NowcoderResponse<NowcoderCaptchaConfig>>(
+            'captcha config',
             'https://www.nowcoder.com/captcha/geetest/login',
             {
-                headers: {
-                    Cookie: cookieHeader,
-                    Referer: 'https://www.nowcoder.com/login',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
+                Cookie: cookieHeader,
+                Referer: 'https://www.nowcoder.com/login',
+                'X-Requested-With': 'XMLHttpRequest'
+            },
+            {
                 params: {
                     source: 'netease',
                     t: Date.now()
@@ -275,10 +336,6 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
             nonce += chars.charAt(Math.floor(Math.random() * chars.length));
         }
         return nonce;
-    }
-
-    private delay(ms: number): Promise<void> {
-        return new Promise(resolve => setTimeout(resolve, ms));
     }
 
     private async getCaptchaWebviewHtml(webview: vscode.Webview, captchaId: string): Promise<string> {
@@ -354,185 +411,16 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         });
     }
 
-    private escapeHtml(value: string): string {
-        return value
-            .replace(/&/g, '&amp;')
-            .replace(/"/g, '&quot;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
-    }
-
-    private async getWechatQrCodeWebviewHtml(webview: vscode.Webview, imageUrl: string, expireSecond: number): Promise<string> {
-        const iconUri = webview.asWebviewUri(vscode.Uri.joinPath(this.context.extensionUri, 'resources', 'icon.png'));
-        const templateUri = vscode.Uri.joinPath(this.context.extensionUri, 'resources', 'nowcoderWechatLogin.html');
-        const template = Buffer.from(await vscode.workspace.fs.readFile(templateUri)).toString('utf8');
-        const replacements: { [key: string]: string } = {
-            cspSource: webview.cspSource,
-            iconUri: this.escapeHtml(iconUri.toString()),
-            imageUrl: this.escapeHtml(imageUrl),
-            expireSecond: this.escapeHtml(expireSecond.toString())
-        };
-
-        return template.replace(/\{\{(\w+)\}\}/g, (match, key: string) => replacements[key] ?? match);
-    }
-
-    private async getWechatQrCode(cookieHeader: string): Promise<NowcoderWechatQrCodeResult | undefined> {
-        const response = await axios.get<NowcoderResponse<NowcoderWechatQrCodeConfig>>(
-            'https://www.nowcoder.com/oauth2/login/wechat_qr_code',
-            {
-                headers: {
-                    Cookie: cookieHeader,
-                    Referer: 'https://www.nowcoder.com/login',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                validateStatus: () => true
-            }
-        );
-
-        const setCookie = response.headers['set-cookie'];
-        const nextCookieHeader = this.mergeCookieHeaders(
-            cookieHeader,
-            this.cookieHeaderFromSetCookie(setCookie)
-        );
-        const ticket = response.data.data?.ticket;
-        const imageUrl = response.data.data?.imageUrl;
-        const expireSecond = response.data.data?.expireSecond ?? 120;
-        this.debugLogin('wechat qr code response', {
-            status: response.status,
-            code: response.data?.code,
-            msg: response.data?.msg || response.data?.message,
-            setCookieNames: this.cookieNamesFromSetCookie(setCookie),
-            cookieNames: this.cookieNamesFromHeader(nextCookieHeader),
-            hasTicket: Boolean(ticket),
-            hasImageUrl: Boolean(imageUrl),
-            expireSecond
-        });
-
-        if (response.data.code !== 0 || !ticket || !imageUrl) {
-            this.showLoginError(response.data.msg || response.data.message || '获取微信登录二维码失败');
-            return undefined;
-        }
-
-        return {
-            ticket,
-            imageUrl,
-            expireSecond,
-            cookieHeader: nextCookieHeader
-        };
-    }
-
-    private async pollWechatLoginStatus(ticket: string, cookieHeader: string): Promise<NowcoderLoginResult> {
-        const response = await axios.get<NowcoderResponse>(
-            'https://www.nowcoder.com/oauth2/login/wechat_mp_status',
-            {
-                headers: {
-                    Cookie: cookieHeader,
-                    Referer: 'https://www.nowcoder.com/oauth2/login/wechat_mp_index',
-                    'X-Requested-With': 'XMLHttpRequest'
-                },
-                params: {
-                    ticket
-                },
-                validateStatus: () => true
-            }
-        );
-
-        const setCookie = response.headers['set-cookie'];
-        const nextCookieHeader = this.mergeCookieHeaders(
-            cookieHeader,
-            this.cookieHeaderFromSetCookie(setCookie)
-        );
-        const token = this.getCookieValue(nextCookieHeader, 't');
-        this.debugLogin('wechat login status response', {
-            status: response.status,
-            code: response.data?.code,
-            msg: response.data?.msg || response.data?.message,
-            setCookieNames: this.cookieNamesFromSetCookie(setCookie),
-            cookieNames: this.cookieNamesFromHeader(nextCookieHeader),
-            hasToken: Boolean(token)
-        });
-
-        return {
-            token,
-            cookieHeader: nextCookieHeader,
-            response: {
-                status: response.status,
-                data: response.data
-            }
-        };
-    }
-
-    private async loginWithWechat(): Promise<string | undefined> {
-        const initialCookieHeader = await this.initLoginCookie();
-        const qrCode = await this.getWechatQrCode(initialCookieHeader);
-        if (!qrCode) {
-            return undefined;
-        }
-        const panel = vscode.window.createWebviewPanel(
-            'nowcoderWechatLogin',
-            '牛客微信扫码登录',
-            vscode.ViewColumn.Active,
-            {
-                enableScripts: false,
-                localResourceRoots: [
-                    vscode.Uri.joinPath(this.context.extensionUri, 'resources')
-                ]
-            }
-        );
-
-        panel.webview.html = await this.getWechatQrCodeWebviewHtml(
-            panel.webview,
-            qrCode.imageUrl,
-            qrCode.expireSecond
-        );
-
-        let disposed = false;
-        const disposeListener = panel.onDidDispose(() => {
-            disposed = true;
-        });
-
-        try {
-            let cookieHeader = qrCode.cookieHeader;
-            const deadline = Date.now() + qrCode.expireSecond * 1000;
-            while (!disposed && Date.now() < deadline) {
-                await this.delay(3000);
-                if (disposed) {
-                    break;
-                }
-
-                const result = await this.pollWechatLoginStatus(qrCode.ticket, cookieHeader);
-                cookieHeader = result.cookieHeader;
-                if (result.token) {
-                    panel.dispose();
-                    return result.token;
-                }
-                if (result.response.data?.code !== 1) {
-                    this.showLoginError(this.getLoginFailureMessage(result, '微信扫码登录失败'));
-                    return undefined;
-                }
-            }
-
-            if (disposed) {
-                return this.cancelLogin();
-            }
-            this.showLoginWarning('微信登录二维码已过期，请重新登录');
-            return undefined;
-        } finally {
-            disposeListener.dispose();
-            if (!disposed) {
-                panel.dispose();
-            }
-        }
-    }
-
     private getLoginFailureMessage(result: NowcoderLoginResult, fallback = '牛客登录失败'): string {
         const message = result.response.data?.msg || result.response.data?.message;
         return message || `${fallback}，状态码 ${result.response.status}`;
     }
 
     private async loginWithPassword(account: string, password: string): Promise<string | undefined> {
-        const configResponse = await axios.get<NowcoderResponse<NowcoderEnvironmentConfig>>(
-            'https://www.nowcoder.com/environment/config'
+        const configResponse = await this.getWithLoginUserAgent<NowcoderResponse<NowcoderEnvironmentConfig>>(
+            'environment config',
+            'https://www.nowcoder.com/environment/config',
+            {}
         );
         const publicKey = configResponse.data.data?.rsaPublicKey;
         if (!publicKey) {
@@ -584,13 +472,17 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
     }
 
     private async initLoginCookie(): Promise<string> {
-        const response = await axios.get<string>('https://www.nowcoder.com/login', {
-            headers: {
+        const response = await this.getWithLoginUserAgent<string>(
+            'login page',
+            'https://www.nowcoder.com/login',
+            {
                 Accept: 'text/html'
             },
-            responseType: 'text',
-            validateStatus: () => true
-        });
+            {
+                responseType: 'text',
+                validateStatus: () => true
+            }
+        );
         const cookieHeader = this.cookieHeaderFromSetCookie(response.headers['set-cookie']);
         this.debugLogin('login page initialized', {
             status: response.status,
@@ -622,17 +514,18 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
             body.set('netease_validate', neteaseValidate);
         }
 
-        const response = await axios.post<NowcoderResponse>(
+        const response = await this.postWithLoginUserAgent<NowcoderResponse>(
+            'sms code request',
             'https://www.nowcoder.com/nccommon/register/validate-phone-v2',
             body.toString(),
             {
-                headers: {
-                    Cookie: cookieHeader,
-                    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-                    'X-Requested-With': 'XMLHttpRequest',
-                    langType: 'Ch',
-                    Referer: 'https://www.nowcoder.com/login'
-                },
+                Cookie: cookieHeader,
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest',
+                langType: 'Ch',
+                Referer: 'https://www.nowcoder.com/login'
+            },
+            {
                 params: this.getRequestParams(cookieHeader),
                 validateStatus: () => true
             }
@@ -700,17 +593,18 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
             remember: 'true'
         });
 
-        const response = await axios.post<NowcoderResponse>(
+        const response = await this.postWithLoginUserAgent<NowcoderResponse>(
+            'sms login',
             'https://www.nowcoder.com/nccommon/login-or-register/do',
             body.toString(),
             {
-                headers: {
-                    Cookie: cookieHeader,
-                    'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
-                    'X-Requested-With': 'XMLHttpRequest',
-                    langType: 'Ch',
-                    Referer: 'https://www.nowcoder.com/login'
-                },
+                Cookie: cookieHeader,
+                'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+                'X-Requested-With': 'XMLHttpRequest',
+                langType: 'Ch',
+                Referer: 'https://www.nowcoder.com/login'
+            },
+            {
                 params: this.getRequestParams(cookieHeader),
                 validateStatus: () => true
             }
@@ -857,19 +751,6 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
         }
     }
 
-    private async promptWechatLogin(): Promise<string> {
-        while (true) {
-            try {
-                const token = await this.loginWithWechat();
-                if (token) {
-                    return token;
-                }
-            } catch (error) {
-                await this.handleLoginAttemptError(error);
-            }
-        }
-    }
-
     private async promptCookieLogin(): Promise<string> {
         while (true) {
             const cookieStr = await vscode.window.showInputBox({
@@ -919,9 +800,6 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
             {
                 label: '手机验证码登录',
             },
-            {
-                label: '微信扫码登录',
-            }
         ], {
             placeHolder: '选择牛客登录方式'
         });
@@ -935,8 +813,6 @@ export class NowcoderAuthenticationProvider implements vscode.AuthenticationProv
             token = await this.promptPasswordLogin();
         } else if (loginMode.label === '手机验证码登录') {
             token = await this.promptSmsLogin();
-        } else if (loginMode.label === '微信扫码登录') {
-            token = await this.promptWechatLogin();
         } else {
             token = await this.promptCookieLogin();
         }

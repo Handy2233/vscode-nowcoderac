@@ -2,7 +2,12 @@
 
 All notable changes to the extension will be documented in this file.
 
-## Versiom 1.1.1
+## Version 1.1.5
+
+- 完善排行榜功能，现在可以用独立窗口显示排行榜，操作逻辑同牛客榜单
+- 为周赛赛制做适配
+
+## Version 1.1.1
 
 - 优化了登录逻辑，改善用户体验
 

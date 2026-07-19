@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import { nowcoderService } from './nowcoderService';
-import { Problem, SubmissionStatus, NowcoderCompiler, ProblemInfo, ProblemExtra, SubmissionListItem, RealtimeRank, NowcoderConfig, ContestInfo } from '../models/models';
+import { Problem, SubmissionStatus, NowcoderCompiler, ProblemInfo, ProblemExtra, SubmissionListItem, RealtimeRank, NowcoderConfig, ContestInfo, NowcoderTeam } from '../models/models';
 import { CphService } from './cphService';
 import { IContestDataProvider } from './contestDataProvider.interface';
 import { getProblemExtraSignature, getProblemInfoSignature } from '../utils/problemSignature';
@@ -395,6 +395,44 @@ export class ContestService implements IContestDataProvider {
         }
 
         return this.realtimeRankCache;
+    }
+
+    /**
+     * 获取排行榜窗口所需的指定页数据。
+     *
+     * 弹窗拥有独立的页码和筛选状态，因此这里不读写侧栏使用的第一页缓存，
+     * 避免搜索或翻页后让 TreeView 展示错误的数据集。
+     *
+     * @param page 页码，从 1 开始。
+     * @param onlyMyFollow 是否只显示当前用户关注的参赛者。
+     * @param searchUserName 可选的用户名搜索关键字。
+     * @param teamId 可选的“我的团队”ID。
+     * @returns 指定查询条件下的实时排名数据。
+     */
+    async getRealtimeRankPage(page: number, onlyMyFollow: boolean, searchUserName?: string, teamId?: number): Promise<RealtimeRank> {
+        const rankResult = await nowcoderService.getRealtimeRank(
+            this.config.contestId,
+            page,
+            onlyMyFollow,
+            searchUserName,
+            teamId
+        );
+        if (!rankResult.success) {
+            throw new Error(`获取实时排名失败: ${rankResult.error}`);
+        }
+
+        return rankResult.data!;
+    }
+
+    /**
+     * 获取当前登录用户加入的竞赛团队。
+     */
+    async getMyTeams(): Promise<NowcoderTeam[]> {
+        const teamResult = await nowcoderService.getMyTeams();
+        if (!teamResult.success) {
+            throw new Error(`获取我的团队失败: ${teamResult.error}`);
+        }
+        return teamResult.data!;
     }
 
     async getContestInfo(noCache: boolean = false): Promise<ContestInfo | undefined> {

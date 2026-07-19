@@ -3,6 +3,7 @@ import { NowcoderAuthenticationProvider } from './nowcoderAuthenticationProvider
 import { ProblemsProvider } from './views/problemsProvider';
 import { SubmissionsProvider } from './views/submissionsProvider';
 import { RankingsProvider } from './views/rankingsProvider';
+import { RankBoardPanel } from './views/rankBoardPanel';
 import { ContestsProvider } from './views/contestsProvider';
 import { ContestSpaceManager } from './services/contestSpaceManager';
 import { createCodeFile, openProblem, createContestSpace, refreshProblemList, submitSolution, submitCurrentFile, refreshSubmissionList, refreshRealtimeRank, login, logout, openContestFromList, refreshContestList, deleteContestFromList } from './services/commands';
@@ -62,6 +63,8 @@ export function activate(context: vscode.ExtensionContext) {
     const problemsProvider = new ProblemsProvider(contestServiceEventWrapper);
     const submissionsProvider = new SubmissionsProvider(contestServiceEventWrapper);
     const rankingsProvider = new RankingsProvider(contestServiceEventWrapper);
+    const rankBoardPanel = new RankBoardPanel(contestServiceEventWrapper, context.extensionUri);
+    context.subscriptions.push(rankBoardPanel);
     
     // 初始化倒计时
     const countdownTimer = new ContestCountdownTimer();
@@ -149,6 +152,10 @@ export function activate(context: vscode.ExtensionContext) {
     // 刷新排名命令
     const refreshRankingsDisposable = vscode.commands.registerCommand('nowcoderac.refreshRealtimeRank', refreshRealtimeRank);
     context.subscriptions.push(refreshRankingsDisposable);
+
+    // 打开完整实时排名窗口
+    const openRankBoardDisposable = vscode.commands.registerCommand('nowcoderac.openRealtimeRankBoard', () => rankBoardPanel.show());
+    context.subscriptions.push(openRankBoardDisposable);
 
     // 登录命令
     const loginDisposable = vscode.commands.registerCommand('nowcoderac.login', () => login(authProvider));

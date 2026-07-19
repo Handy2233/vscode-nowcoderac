@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
 import { httpClient } from './httpClient';
 import { parseContestPage, parseProblemPage } from '../utils/htmlParser';
-import { SubmissionResponse, SubmissionStatus, NowcoderCompiler, COMPILER_CONFIG, ProblemExtra, ContestProblemList, Response, SubmissionList, ApiResult, RealtimeRank, ContestInfo, AcmCurrentUser, ContestMessageList, ContestMessagePing } from '../models/models';
+import { SubmissionResponse, SubmissionStatus, NowcoderCompiler, COMPILER_CONFIG, ProblemExtra, ContestProblemList, Response, SubmissionList, ApiResult, RealtimeRank, ContestInfo, AcmCurrentUser, ContestMessageList, ContestMessagePing, NowcoderTeam } from '../models/models';
 
 /**
  * NowCoder服务，封装与NowCoder平台的API交互
@@ -221,11 +221,14 @@ export class NowcoderService {
         }
     }
 
-    async getRealtimeRank(contestId: number, page: number = 1, onlyMyFollow: boolean = false, searchUserName: string | undefined = undefined): Promise<ApiResult<RealtimeRank>> {
+    async getRealtimeRank(contestId: number, page: number = 1, onlyMyFollow: boolean = false, searchUserName: string | undefined = undefined, teamId: number | undefined = undefined): Promise<ApiResult<RealtimeRank>> {
         try {
             var url = `${NowcoderService.BASE_URL}/acm-heavy/acm/contest/real-time-rank-data?id=${contestId}&page=${page}&onlyMyFollow=${onlyMyFollow}&limit=0`;
             if (searchUserName) {
                 url += `&searchUserName=${encodeURIComponent(searchUserName)}`;
+            }
+            if (teamId) {
+                url += `&teamId=${encodeURIComponent(teamId)}`;
             }
             const response = await httpClient.get<Response<RealtimeRank>>(url);
             if (response && response.code === 0 && response.data) {
@@ -235,6 +238,24 @@ export class NowcoderService {
             return ApiResult.failure(response?.msg || '未知错误');
         } catch (error) {
             console.error('Error fetching realtime rank:', error);
+            return ApiResult.failure('网络错误: ' + (error instanceof Error ? error.message : String(error)));
+        }
+    }
+
+    /**
+     * 获取当前登录用户加入的竞赛团队。
+     */
+    async getMyTeams(): Promise<ApiResult<NowcoderTeam[]>> {
+        try {
+            const url = `${NowcoderService.BASE_URL}/acm/team/my-team-list?teamType=1`;
+            const response = await httpClient.get<Response<NowcoderTeam[]>>(url);
+            if (response && response.code === 0 && Array.isArray(response.data)) {
+                return ApiResult.success(response.data);
+            }
+            console.error('Failed to get my teams:', response?.msg);
+            return ApiResult.failure(response?.msg || '未知错误');
+        } catch (error) {
+            console.error('Error fetching my teams:', error);
             return ApiResult.failure('网络错误: ' + (error instanceof Error ? error.message : String(error)));
         }
     }

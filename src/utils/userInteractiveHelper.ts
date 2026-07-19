@@ -3,6 +3,7 @@ import { NowcoderCompiler, COMPILER_CONFIG, Problem, SubmissionStatus } from "..
 import { ContestSpaceManager } from '../services/contestSpaceManager';
 import { nowcoderService } from '../services/nowcoderService';
 import { getDefaultCompilerPref } from './perferenceHelper';
+import { calculateSubmissionScore, formatSubmissionScore, isWeeklyContest } from './submissionScore';
 
 export class UserInteractiveHelper {
     static async askCompiler() : Promise<NowcoderCompiler | null> {
@@ -37,10 +38,12 @@ export class UserInteractiveHelper {
         problem: Problem,
         onStatusUpdated?: (status: SubmissionStatus) => any
     ): Promise<void> {
-        problem.extra = problem.extra ?? await ContestSpaceManager.getInstance().getContestService()?.getProblemExtra(problem.info.index, false);
+        const contestService = ContestSpaceManager.getInstance().getContestService();
+        problem.extra = problem.extra ?? await contestService?.getProblemExtra(problem.info.index, false);
         if (!problem.extra) {
             throw new Error(`获取题目"${problem.info.index}"详情失败`);
         }
+        const weeklyContest = isWeeklyContest(await contestService?.getContestInfo(false).catch(() => undefined));
         
         vscode.window.withProgress({
             location: vscode.ProgressLocation.Notification,
@@ -74,10 +77,16 @@ export class UserInteractiveHelper {
                 }
 
                 isComplete = true;
+                const scoreSuffix = weeklyContest
+                    ? ` · 得分 ${formatSubmissionScore(
+                        calculateSubmissionScore(status.rightHundredRate, problem.info.score),
+                        problem.info.score
+                    )}`
+                    : '';
                 if (status.status === 5) { // 5表示"答案正确"
-                    vscode.window.showInformationMessage(`判题成功: ${status.judgeReplyDesc}`);
+                    vscode.window.showInformationMessage(`判题成功: ${status.judgeReplyDesc}${scoreSuffix}`);
                 } else {
-                    vscode.window.showWarningMessage(`提交结果: ${status.judgeReplyDesc}\n${status.desc}`);
+                    vscode.window.showWarningMessage(`提交结果: ${status.judgeReplyDesc}${scoreSuffix}\n${status.desc}`);
 
                     // 如果是编译错误，显示错误消息
                     if (status.status === 12) {

@@ -112,6 +112,14 @@ export interface AcmCurrentUser {
 }
 
 /**
+ * 当前用户在牛客竞赛中加入的团队。
+ */
+export interface NowcoderTeam {
+    id: number;
+    name: string;
+}
+
+/**
  * 竞赛消息轮询接口响应
  */
 export interface ContestMessagePing {
@@ -269,6 +277,9 @@ export interface SubmissionListItem {
     submitTime: number;
     time?: number;
     problemId: number;
+    score?: number;
+    fullScore?: number;
+    scoreColorLevel?: number;
 }
 
 /**
@@ -427,6 +438,7 @@ export interface RankData {
     fullScore: number;
     penaltyTime: number;
     ranking: number;
+    reachTime?: number;
     school: string;
     scoreList: ProblemScore[];
     team: boolean;
@@ -443,6 +455,7 @@ export interface ProblemScore {
     firstBlood: boolean;
     fullScore: number;
     problemId: number;
+    reachTime?: number;
     score: number;
     submissionId: number;
     submit: boolean;
@@ -453,6 +466,7 @@ export interface ProblemScore {
 export interface ProblemRankData {
     acceptedCount: number;
     submitCount: number;
+    score?: number;
     name: string;
     problemId: number;
 }

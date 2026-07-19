@@ -17,6 +17,18 @@
   ],
   "main": "./dist/extension.js",
   "contributes": {
+    "customEditors": [
+      {
+        "viewType": "nowcoderac.realtimeRankBoardEditor",
+        "displayName": "牛客实时排名",
+        "priority": "option",
+        "selector": [
+          {
+            "filenamePattern": "*.nowcoder-rankboard"
+          }
+        ]
+      }
+    ],
     "authentication": [
       {
         "id": "nowcoderac",
@@ -88,6 +100,12 @@
         "command": "nowcoderac.refreshRealtimeRank",
         "title": "刷新实时排名",
         "icon": "$(refresh)",
+        "category": "NowCoder"
+      },
+      {
+        "command": "nowcoderac.openRealtimeRankBoard",
+        "title": "打开完整实时排名",
+        "icon": "$(open-preview)",
         "category": "NowCoder"
       },
       {
@@ -207,9 +225,14 @@
           "group": "navigation"
         },
         {
+          "command": "nowcoderac.openRealtimeRankBoard",
+          "when": "view == nowcoderac-rankings",
+          "group": "navigation@1"
+        },
+        {
           "command": "nowcoderac.refreshRealtimeRank",
           "when": "view == nowcoderac-rankings",
-          "group": "navigation"
+          "group": "navigation@2"
         }
       ],
       "view/item/context": [
@@ -231,11 +254,13 @@
   "scripts": {
     "compile": "npm run check-types && node esbuild.js",
     "check-types": "tsc --noEmit",
+    "check-submission-score": "node scripts/check-submission-score.js",
+    "check-webviews": "node scripts/check-rank-board-webview.js",
     "watch": "npm-run-all -p watch:*",
     "watch:esbuild": "node esbuild.js --watch",
     "watch:tsc": "tsc --noEmit --watch --project tsconfig.json",
     "vscode:prepublish": "npm run package",
-    "package": "npm run check-types && node esbuild.js --production",
+    "package": "npm run check-types && npm run check-submission-score && npm run check-webviews && node esbuild.js --production",
     "release": "bash release.sh"
   },
   "devDependencies": {

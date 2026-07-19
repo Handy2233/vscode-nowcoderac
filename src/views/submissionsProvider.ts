@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { SubmissionListItem } from '../models/models';
 import { IContestDataProvider } from '../services/contestDataProvider.interface';
+import { formatSubmissionScore, isWeeklyContest } from '../utils/submissionScore';
 
 export class SubmissionsProvider implements vscode.TreeDataProvider<SubmissionItem | MessageItem> {
     private _onDidChangeTreeData = new vscode.EventEmitter<SubmissionItem | undefined | null | void>();
@@ -30,12 +31,16 @@ export class SubmissionsProvider implements vscode.TreeDataProvider<SubmissionIt
         }
         
         try {
-            const submissions = await this.dataProvider.getSubmissions();
+            const [submissions, contestInfo] = await Promise.all([
+                this.dataProvider.getSubmissions(),
+                this.dataProvider.getContestInfo(false).catch(() => undefined)
+            ]);
             if (!submissions || submissions.length === 0) {
                 return [new MessageItem('暂无提交记录', '交一发先')];
             }
-            
-            return submissions.map(submission => new SubmissionItem(submission));
+
+            const showScore = isWeeklyContest(contestInfo);
+            return submissions.map(submission => new SubmissionItem(submission, showScore));
         } catch (error) {
             console.error('Failed to get submissions:', error);
             return [new MessageItem('获取提交记录失败', (error as Error).message)];
@@ -44,9 +49,12 @@ export class SubmissionsProvider implements vscode.TreeDataProvider<SubmissionIt
 }
 
 export class SubmissionItem extends vscode.TreeItem {
-    constructor(public readonly submission: SubmissionListItem) {
+    constructor(public readonly submission: SubmissionListItem, showScore = false) {
+        const scoreText = showScore && Number.isFinite(submission.score)
+            ? formatSubmissionScore(submission.score!, submission.fullScore)
+            : undefined;
         super(
-            `${submission.index} - ${submission.statusMessage}`,
+            `${submission.index} - ${submission.statusMessage}${scoreText ? ` · 得分 ${scoreText}` : ''}`,
             vscode.TreeItemCollapsibleState.None
         );
         
@@ -60,7 +68,8 @@ export class SubmissionItem extends vscode.TreeItem {
             second: '2-digit'
         }).replace(/\//g, '-').replace(/,/, '');
 
-        this.tooltip = `状态: ${submission.statusMessage}
+        this.tooltip = `状态: ${submission.statusMessage}${scoreText ? `
+得分: ${scoreText}` : ''}
 运行时间: ${submission.time ?? '---'}ms
 内存: ${submission.memory ?? '---'}KB
 语言: ${submission.languageName}

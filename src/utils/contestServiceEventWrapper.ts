@@ -2,7 +2,7 @@ import * as vscode from "vscode";
 import { IContestDataProvider } from "../services/contestDataProvider.interface";
 import { ContestService } from "../services/contestService";
 import { ContestSpaceManager } from "../services/contestSpaceManager";
-import { Problem, RealtimeRank, SubmissionListItem, SubmissionStatus, ProblemExtra, NowcoderCompiler } from "../models/models";
+import { ContestInfo, Problem, RealtimeRank, SubmissionListItem, SubmissionStatus, ProblemExtra, NowcoderCompiler, NowcoderTeam } from "../models/models";
 
 export class ContestServiceEventWrapper implements IContestDataProvider {
     private readonly _onProblemsUpdated = new vscode.EventEmitter<Problem[]>();
@@ -128,5 +128,23 @@ export class ContestServiceEventWrapper implements IContestDataProvider {
             return Promise.resolve(undefined);
         }
         return await this.service.getRealtimeRank(noCache);
+    }
+
+    async getRealtimeRankPage(page: number, onlyMyFollow: boolean, searchUserName?: string, teamId?: number): Promise<RealtimeRank | undefined> {
+        if (!this.service) {
+            return Promise.resolve(undefined);
+        }
+        return await this.service.getRealtimeRankPage(page, onlyMyFollow, searchUserName, teamId);
+    }
+
+    async getMyTeams(): Promise<NowcoderTeam[]> {
+        return this.service ? await this.service.getMyTeams() : [];
+    }
+
+    async getContestInfo(noCache: boolean = false): Promise<ContestInfo | undefined> {
+        if (!this.service) {
+            return Promise.resolve(undefined);
+        }
+        return await this.service.getContestInfo(noCache);
     }
 }

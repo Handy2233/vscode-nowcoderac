@@ -1,5 +1,5 @@
 import * as vscode from "vscode";
-import { Problem, ProblemExtra, RealtimeRank, SubmissionListItem, SubmissionStatus } from "../models/models";
+import { ContestInfo, NowcoderTeam, Problem, ProblemExtra, RealtimeRank, SubmissionListItem, SubmissionStatus } from "../models/models";
 
 export interface IContestDataProvider {
     readonly onProblemsUpdated: vscode.Event<Problem[]>;
@@ -12,4 +12,7 @@ export interface IContestDataProvider {
     getProblemExtra(index: string, noCache?: boolean): Promise<ProblemExtra | undefined>;
     getSubmissions(noCache?: boolean): Promise<SubmissionListItem[]>;
     getRealtimeRank(noCache?: boolean): Promise<RealtimeRank | undefined>;
+    getRealtimeRankPage(page: number, onlyMyFollow: boolean, searchUserName?: string, teamId?: number): Promise<RealtimeRank | undefined>;
+    getMyTeams(): Promise<NowcoderTeam[]>;
+    getContestInfo(noCache?: boolean): Promise<ContestInfo | undefined>;
 }
